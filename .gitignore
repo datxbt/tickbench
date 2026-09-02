@@ -1,0 +1,27 @@
+# Raw vendor tick data (~48 GB) - never commit
+Tick_Data/
+
+# Derived data products - reproducible from raw via scripts/convert_ticks.py
+data/
+
+# Generated reports (keep the directory, ignore heavy outputs)
+reports/**/*.parquet
+reports/**/*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
