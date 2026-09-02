@@ -86,10 +86,10 @@ def build_markdown(monthly: pl.DataFrame, hourly: pl.DataFrame) -> str:
         "",
         "The real test of the ask side. Exness publishes an average spread per symbol,",
         "so the check is whether the tick-weighted mean matches it - not whether zero",
-        "spreads occur. Measured Mon-Fri from 2024 on, to match the single-weekday",
-        "basis of the published figure.",
+        "spreads occur. Measured over the trailing 3 months, Mon-Fri, because the",
+        "published figure is a previous-trading-day snapshot rather than a long-run mean.",
         "",
-        "| Symbol | Observed mean (pips, Mon-Fri 2024+) | Published avg | Tolerance | Verdict |",
+        "| Symbol | Observed mean (pips, trailing 3mo) | Published avg | Tolerance | Verdict |",
         "| --- | ---: | ---: | ---: | --- |",
     ]
     for symbol in sorted(monthly["symbol"].unique().to_list()):
@@ -107,32 +107,35 @@ def build_markdown(monthly: pl.DataFrame, hourly: pl.DataFrame) -> str:
         "",
         "### Round-turn cost",
         "",
-        "Commission is the missing half of the cost picture: on the majors it dwarfs",
-        "the spread. Quoted per standard lot, round turn, Mon-Fri from 2024 on.",
+        "Commission is the missing half of the cost picture, and on the FX majors it",
+        "dwarfs the spread. Quoted per standard lot, round turn, over the trailing",
+        "3 months, Mon-Fri.",
         "",
-        "| Symbol | Mean spread (pips) | Commission (pips) | Total (pips) | Commission share |",
-        "| --- | ---: | ---: | ---: | ---: |",
+        "Pips are not comparable across these instruments, so the last column restates",
+        "the total as basis points of price - the unit that actually decides which",
+        "instrument is cheap to trade.",
+        "",
+        "| Symbol | Mean spread (pips) | Commission (pips) | Total (pips) | Commission share | Total (bps) |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for symbol in sorted(monthly["symbol"].unique().to_list()):
         spec = get_spec(symbol)
-        sub = monthly.filter((pl.col("symbol") == symbol) & (pl.col("year") >= 2024))
+        sub = monthly.filter(pl.col("symbol") == symbol).sort(["year", "month"]).tail(3)
         weights = sub["rows"]
         spread = float((sub["spread_mean_mon_fri_pips"] * weights).sum() / weights.sum())
+        price = float(((sub["price_max"] + sub["price_min"]) / 2).mean())
         if spec.commission_per_lot_side_usd is None:
-            lines.append(
-                f"| {symbol} | {spread:.4f} | not on file | - | - |"
-            )
+            lines.append(f"| {symbol} | {spread:.4f} | not on file | - | - | - |")
             continue
         # USDJPY's pip is worth a rate-dependent amount of USD; use the period's
         # own mean price rather than a hard-coded rate.
-        rate = 1.0
-        if spec.quote_ccy == "JPY":
-            rate = float((sub["price_max"] + sub["price_min"]).mean() / 2)
+        rate = price if spec.quote_ccy == "JPY" else 1.0
         commission = spec.commission_pips(rate)
         total = spread + commission
+        total_bps = total * spec.pip / price * 10_000
         lines.append(
             f"| {symbol} | {spread:.4f} | {commission:.3f} | {total:.3f} | "
-            f"{100 * commission / total:.0f}% |"
+            f"{100 * commission / total:.0f}% | {total_bps:.2f} |"
         )
 
     lines += [
@@ -181,12 +184,19 @@ def build_markdown(monthly: pl.DataFrame, hourly: pl.DataFrame) -> str:
     for symbol in sorted(monthly["symbol"].unique().to_list()):
         sub = monthly.filter(pl.col("symbol") == symbol)
         issues: list[str] = []
+        notes: list[str] = []
         check = quality.spec_agreement(monthly, symbol)
-        if check.get("agrees") is False:
+        if check["status"] == "wider than published - investigate":
             issues.append(
-                f"observed mean spread {check['observed_mean_pips']:.3f} pips does not "
-                f"match the published {check['spec_mean_pips']:.1f} - investigate before "
-                f"trusting the ask side"
+                f"observed mean spread {check['observed_mean_pips']:.3f} pips is wider "
+                f"than the published {check['spec_mean_pips']:.1f} - costs would run "
+                f"above the advertised rate"
+            )
+        elif check["status"] == "tighter than published":
+            # Better fills than advertised. Worth stating, but not a defect.
+            notes.append(
+                f"quotes tighter than published ({check['observed_mean_pips']:.3f} vs "
+                f"{check['spec_mean_pips']:.1f} pips) - favourable, but do not budget for it"
             )
         elif check.get("agrees") is None:
             issues.append(
@@ -203,6 +213,8 @@ def build_markdown(monthly: pl.DataFrame, hourly: pl.DataFrame) -> str:
                 f"{int(sub['n_outage_gap_gt_3600s'].sum())} unexplained outages over an hour"
             )
         verdict = "usable as-is" if not issues else "; ".join(issues)
+        if notes:
+            verdict += " (" + "; ".join(notes) + ")"
         lines.append(f"- **{symbol}**: {verdict}")
 
     lines += [

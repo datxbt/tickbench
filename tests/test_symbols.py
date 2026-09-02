@@ -40,13 +40,46 @@ def test_commission_dominates_spread_on_the_majors():
     assert commission / observed_mean_spread_pips > 10
 
 
-def test_symbols_without_a_published_spec_refuse_to_guess():
-    """Metals and indices sit on a different spec page; better to raise than invent."""
-    for symbol in ("XAUUSD", "USTEC"):
-        spec = get_spec(symbol)
-        assert spec.commission_per_lot_side_usd is None
-        with pytest.raises(ValueError, match="commission not specified"):
-            spec.commission_pips()
+def test_xauusd_commission_in_pips():
+    """A 100 oz gold lot makes a 0.01 pip worth $1, so $7 round turn is 7 pips."""
+    spec = get_spec("XAUUSD")
+
+    assert spec.pip_value_usd() == pytest.approx(1.0)
+    assert spec.commission_pips() == pytest.approx(7.0)
+
+
+def test_ustec_commission_in_pips():
+    """One index point per lot, so $0.626 round turn is 0.626 pips."""
+    spec = get_spec("USTEC")
+
+    assert spec.pip_value_usd() == pytest.approx(1.0)
+    assert spec.commission_pips() == pytest.approx(0.626)
+
+
+def test_commission_share_differs_sharply_by_asset_class():
+    """The reason one blanket cost assumption will not do.
+
+    On EURUSD commission is ~93% of the round turn; on gold, where the spread is
+    genuinely 9 pips, it is under half. A strategy ported between them inherits a
+    different cost structure, not just a different number.
+    """
+    eurusd = get_spec("EURUSD")
+    xauusd = get_spec("XAUUSD")
+
+    eurusd_share = eurusd.commission_pips() / (
+        eurusd.commission_pips() + eurusd.spec_avg_spread_pips
+    )
+    xauusd_share = xauusd.commission_pips() / (
+        xauusd.commission_pips() + xauusd.spec_avg_spread_pips
+    )
+
+    assert eurusd_share > 0.95
+    assert xauusd_share < 0.5
+
+
+def test_unknown_symbol_raises():
+    with pytest.raises(KeyError, match="unknown symbol"):
+        get_spec("GBPUSD")
 
 
 def test_every_symbol_has_a_pip_and_digits():

@@ -114,9 +114,13 @@ SYMBOLS: dict[str, SymbolSpec] = {
         digits=3,
         pip=1e-2,
         daily_break_utc=(20, 22),
-        # Metals sit on a separate Exness contract-specification page; commission
-        # and contract size are left unset rather than guessed. Until they are
-        # filled in, XAUUSD cost estimates cover spread only.
+        spec_avg_spread_pips=9.0,
+        commission_per_lot_side_usd=3.5,
+        # Standard gold lot is 100 oz, so a 0.01 pip is worth $1 - i.e. a $1 move
+        # in gold is $100 a lot. Published commission is per lot, so this scale
+        # has to be right for the pip conversion to be.
+        contract_size=100,
+        quote_ccy="USD",
     ),
     "USTEC": SymbolSpec(
         name="USTEC",
@@ -126,7 +130,13 @@ SYMBOLS: dict[str, SymbolSpec] = {
         digits=2,
         pip=1.0,
         daily_break_utc=(19, 22),
-        # As above: indices have their own specification page.
+        spec_avg_spread_pips=0.6,
+        commission_per_lot_side_usd=0.313,
+        # One index point per lot. Inferred, not published: Exness lists
+        # USTEC_x100 at exactly 100x this commission ($31.3 vs $0.313), which
+        # only makes sense if the plain contract is a single unit.
+        contract_size=1,
+        quote_ccy="USD",
     ),
 }
 

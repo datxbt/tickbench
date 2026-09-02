@@ -33,27 +33,32 @@ which is always corrupt.
 
 The real test of the ask side. Exness publishes an average spread per symbol,
 so the check is whether the tick-weighted mean matches it - not whether zero
-spreads occur. Measured Mon-Fri from 2024 on, to match the single-weekday
-basis of the published figure.
+spreads occur. Measured over the trailing 3 months, Mon-Fri, because the
+published figure is a previous-trading-day snapshot rather than a long-run mean.
 
-| Symbol | Observed mean (pips, Mon-Fri 2024+) | Published avg | Tolerance | Verdict |
+| Symbol | Observed mean (pips, trailing 3mo) | Published avg | Tolerance | Verdict |
 | --- | ---: | ---: | ---: | --- |
-| EURUSD | 0.0389 | 0.0 | ±0.10 | agrees with spec |
-| USDJPY | 0.0712 | 0.0 | ±0.16 | agrees with spec |
-| USTEC | 0.3380 | - | - | no published spec on file |
-| XAUUSD | 5.9551 | - | - | no published spec on file |
+| EURUSD | 0.0291 | 0.0 | ±0.10 | agrees with spec |
+| USDJPY | 0.0423 | 0.0 | ±0.16 | agrees with spec |
+| USTEC | 0.4197 | 0.6 | ±0.13 | tighter than published |
+| XAUUSD | 8.7416 | 9.0 | ±1.40 | agrees with spec |
 
 ### Round-turn cost
 
-Commission is the missing half of the cost picture: on the majors it dwarfs
-the spread. Quoted per standard lot, round turn, Mon-Fri from 2024 on.
+Commission is the missing half of the cost picture, and on the FX majors it
+dwarfs the spread. Quoted per standard lot, round turn, over the trailing
+3 months, Mon-Fri.
 
-| Symbol | Mean spread (pips) | Commission (pips) | Total (pips) | Commission share |
-| --- | ---: | ---: | ---: | ---: |
-| EURUSD | 0.0389 | 0.500 | 0.539 | 93% |
-| USDJPY | 0.0712 | 0.761 | 0.833 | 91% |
-| USTEC | 0.3380 | not on file | - | - |
-| XAUUSD | 5.9551 | not on file | - | - |
+Pips are not comparable across these instruments, so the last column restates
+the total as basis points of price - the unit that actually decides which
+instrument is cheap to trade.
+
+| Symbol | Mean spread (pips) | Commission (pips) | Total (pips) | Commission share | Total (bps) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| EURUSD | 0.0291 | 0.500 | 0.529 | 95% | 0.46 |
+| USDJPY | 0.0423 | 0.799 | 0.841 | 95% | 0.53 |
+| USTEC | 0.4197 | 0.626 | 1.046 | 60% | 0.36 |
+| XAUUSD | 8.7416 | 7.000 | 15.742 | 44% | 0.37 |
 
 ## 3. Continuity
 
@@ -84,8 +89,8 @@ A jump is a tick-to-tick mid move greater than 10 bps.
 
 - **EURUSD**: 2 weekdays with no data; 16 unexplained outages over an hour
 - **USDJPY**: 2 weekdays with no data; 12 unexplained outages over an hour
-- **USTEC**: no published contract spec on file - add it before cost modelling; 8 weekdays with no data; 65 unexplained outages over an hour
-- **XAUUSD**: no published contract spec on file - add it before cost modelling; 12 weekdays with no data; 51 unexplained outages over an hour
+- **USTEC**: 8 weekdays with no data; 65 unexplained outages over an hour (quotes tighter than published (0.420 vs 0.6 pips) - favourable, but do not budget for it)
+- **XAUUSD**: 12 weekdays with no data; 51 unexplained outages over an hour
 
 ## 6. UTC hour coverage
 

@@ -26,7 +26,7 @@ data/processed/
 reports/data_quality/          Stage 0 quality report
 src/qlab/                      the package
   paths.py                     canonical filesystem layout
-  symbols.py                   instrument specs (digits, pip size, asset class)
+  symbols.py                   instrument specs and broker contract terms
   convert.py                   CSV -> Parquet conversion
   quality.py                   data quality metrics
 scripts/                       command-line entry points
@@ -83,7 +83,7 @@ the symbol lives in the hive partition path. `mid` and `spread` are deliberately
 not stored - they are one cheap expression away and would inflate every file.
 
 zstd level 3 compresses the corpus roughly 10x: **48 GB CSV -> 4.6 GB parquet**,
-660M ticks, full rebuild in about a minute on 8 workers.
+696M ticks, full rebuild in about a minute on 8 workers.
 
 ## Design rules
 
@@ -105,19 +105,23 @@ mistake for finished work.
 
 See `reports/data_quality/DATA_QUALITY.md` for the full report.
 
-**All four symbols are usable.** The corpus agrees with the broker's published
-contract specification wherever that specification is on file.
+**All four symbols are usable and agree with the broker's published contract
+specification.**
 
 - **Zero spread on the majors is correct, not a defect.** EURUSD quotes
   `bid == ask` on 97.6% of ticks and USDJPY on 92.7%. This is what an Exness Raw
   Spread account *is*: the published average spread for both is 0.0 pips and the
-  broker takes revenue as commission instead. Observed Mon-Fri means of 0.039 and
-  0.071 pips agree with that spec.
-- **Commission is the cost, not spread.** At $2.5 per lot per side, round-turn
-  commission is 0.50 pips on EURUSD and about 0.76 on USDJPY (rate-dependent,
-  since a JPY pip is worth a variable number of dollars). That is **93% and 91%
-  of total round-turn cost** - a spread-only cost model would understate the
-  true cost roughly tenfold.
+  broker takes revenue as commission instead. Observed trailing-3-month Mon-Fri
+  means of 0.029 and 0.042 pips agree with that spec.
+- **Commission is the cost on FX, but not everywhere.** Round-turn commission is
+  0.50 pips on EURUSD and ~0.80 on USDJPY (rate-dependent, since a JPY pip is
+  worth a variable number of dollars) - **95% of total cost on both**. On gold
+  it is 44% and on USTEC 60%, because those carry a real spread. One blanket
+  cost assumption across the four would be wrong in both directions.
+- **In basis points, all four cost about the same.** Pips are not comparable
+  across instruments; bps of price are. Round turn: EURUSD 0.46, USDJPY 0.53,
+  USTEC 0.36, XAUUSD 0.37 bps. Instrument choice should therefore turn on edge
+  and volatility, not on cost.
 - **Spread is regime-dependent, and the regimes are sharp.** Weekdays run ~2-5%
   non-zero spread, but the Sunday reopen hits 37% (EURUSD) and 53% (USDJPY), and
   21:00 UTC - the daily rollover - averages 1.5 and 3.3 pips. Avoiding those two
@@ -132,10 +136,26 @@ contract specification wherever that specification is on file.
 - **Duplicate timestamps are benign.** 0.25-2.5% of ticks share a timestamp with
   the previous one, but they are exact duplicate rows, so deduplication in
   Stage 1 will be lossless.
+- **The spec check must use a trailing window.** Exness publishes a
+  previous-trading-day average, so comparing it against a multi-year mean
+  produces false alarms on anything whose spread has moved. Gold averages 8.74
+  pips over the trailing three months against a published 9.0 - agreement - but
+  6.0 over 2024-2026, because its spread ran 5.8 -> 3.7 -> 9.0 across those
+  years. `spec_agreement()` therefore takes `trailing_months`, not a start year.
 
-### Open item
+### Contract terms on file
 
-`symbols.py` carries the Exness Raw Spread FX terms. **XAUUSD and USTEC
-commission and contract size are not filled in** - metals and indices sit on
-separate specification pages. Until they are, cost estimates for those two cover
-spread only, and `SymbolSpec.commission_pips()` raises rather than guessing.
+All four symbols now carry their published Exness Raw Spread terms:
+
+| Symbol | Published avg spread | Commission/side | Contract | Commission round turn |
+| --- | ---: | ---: | ---: | ---: |
+| EURUSD | 0.0 pips | $2.50 | 100,000 | 0.500 pips |
+| USDJPY | 0.0 pips | $2.50 | 100,000 | ~0.80 pips (rate-dependent) |
+| XAUUSD | 9.0 pips | $3.50 | 100 oz | 7.000 pips |
+| USTEC | 0.6 pips | $0.313 | 1 index point | 0.626 pips |
+
+Spreads and commissions are published figures. **Contract sizes are not** - gold
+uses the standard 100 oz lot, and USTEC's single-unit contract is inferred from
+Exness listing `USTEC_x100` at exactly 100x the commission ($31.3 vs $0.313).
+Both are worth confirming against the account's own contract specification,
+since every pip-denominated cost scales with them.

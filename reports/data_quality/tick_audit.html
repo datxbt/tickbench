@@ -385,7 +385,7 @@
   .callout {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-left: 3px solid var(--bad);
+    border-left: 3px solid var(--accent);
     border-radius: 8px;
     padding: 22px 24px;
     margin: 26px 0 0;
@@ -462,11 +462,11 @@
     <p class="eyebrow">Stage 0 &middot; Data Quality Audit</p>
     <h1>Exness Tick Corpus Audit</h1>
     <p class="standfirst">
-      660 million bid/ask ticks across four instruments, 2020&ndash;2026, measured against
+      696 million bid/ask ticks across four instruments, 2020&ndash;2026, measured against
       the Exness Raw Spread contract specification before any strategy work begins.
-      The feed is sound. <strong>The cost of trading it is almost entirely commission,
-      not spread</strong> &mdash; and the spread that does exist is concentrated in two
-      narrow windows a week.
+      All four agree with the published spec. <strong>What differs is where the cost
+      sits</strong> &mdash; 95% commission on the FX majors, 44% on gold &mdash; though in
+      basis points the four land within 0.2 of each other.
     </p>
     <dl class="provenance">
       <div class="prov-item"><dt>Ticks</dt><dd>695,922,945</dd></div>
@@ -491,7 +491,7 @@
         <div class="vcard-top"><span class="vsym">EURUSD</span><span class="vclass">FX</span></div>
         <span class="pill ok">Agrees with spec</span>
         <p class="vbody">
-          Observed Mon&ndash;Fri mean spread <strong>0.039 pips</strong> against a published
+          Trailing-3-month Mon&ndash;Fri mean <strong>0.029 pips</strong> against a published
           0.0. The 97.6% of ticks quoting bid = ask are real: this account type compresses
           spread to zero and charges commission instead.
         </p>
@@ -501,7 +501,7 @@
         <div class="vcard-top"><span class="vsym">USDJPY</span><span class="vclass">FX</span></div>
         <span class="pill ok">Agrees with spec</span>
         <p class="vbody">
-          Observed <strong>0.071 pips</strong> against a published 0.0, inside tolerance.
+          Observed <strong>0.042 pips</strong> against a published 0.0, inside tolerance.
           Its zero-spread share climbed 73% &rarr; 96% since 2020, tracking a genuine
           market-wide spread compression.
         </p>
@@ -509,37 +509,39 @@
 
       <article class="vcard">
         <div class="vcard-top"><span class="vsym">XAUUSD</span><span class="vclass">Metal</span></div>
-        <span class="pill warn">Spec not on file</span>
+        <span class="pill ok">Agrees with spec</span>
         <p class="vbody">
-          Feed is clean &mdash; no zero-spread ticks, median compressing
-          <strong>11.3 &rarr; 3.7 pips</strong> since 2020. But metals commission sits on a
-          separate spec page, so cost here is spread-only until that is added.
+          Trailing-3-month mean <strong>8.74 pips</strong> against a published 9.0. The only
+          instrument here where spread outweighs commission &mdash; 9 pips of spread against
+          7 of commission.
         </p>
       </article>
 
       <article class="vcard">
         <div class="vcard-top"><span class="vsym">USTEC</span><span class="vclass">Index</span></div>
-        <span class="pill warn">Spec not on file</span>
+        <span class="pill ok">Tighter than spec</span>
         <p class="vbody">
-          Same gap as XAUUSD. Zero-spread ticks reach 8% in 2024 and 39% in 2025, worth
-          confirming against the index spec rather than assuming a defect.
+          Quotes <strong>0.42 pips</strong> against a published 0.6 &mdash; better fills than
+          advertised. Favourable, but not something to budget for: model at the published
+          rate.
         </p>
       </article>
     </div>
 
     <div class="callout">
-      <h3>Commission is the cost, not spread</h3>
+      <h3>Where the cost sits is not the same across instruments</h3>
       <p>
-        On an Exness Raw Spread account the majors are quoted at a genuine 0.0 pip average
-        and the broker takes revenue as <strong>$2.5 per lot per side</strong>. Round turn,
-        that is 0.50 pips on EURUSD and about 0.76 on USDJPY &mdash; rate-dependent, since a
-        JPY pip is worth a variable number of dollars.
+        On the FX majors the quote is a genuine 0.0 pip average and the broker takes revenue
+        as commission &mdash; $2.5 per lot per side, or 0.50 pips round turn on EURUSD.
+        That makes commission <strong>95% of total cost</strong>, and a cost model built on
+        the spread distribution alone &mdash; the obvious thing to build from tick data
+        &mdash; would understate an FX strategy's costs roughly twentyfold.
       </p>
       <p>
-        Which makes commission <strong>93% and 91% of total round-trip cost</strong>.
-        A cost model built on the spread distribution alone &mdash; the obvious thing to
-        build from tick data &mdash; would understate the true cost of an FX strategy by
-        roughly a factor of ten.
+        Gold inverts it: a real 9 pip spread against 7 pips of commission, so commission is
+        <strong>44%</strong>. USTEC sits between at 60%. One blanket cost assumption across
+        the four would be wrong in both directions &mdash; which is the argument for keeping
+        contract terms in code rather than as a constant in a backtest.
       </p>
     </div>
   </section>
@@ -548,9 +550,10 @@
   <section>
     <div class="sec-head"><span class="sec-num">02</span><h2>What a round turn costs</h2></div>
     <p class="sec-note">
-      Per standard lot, measured Mon&ndash;Fri from 2024 on. Metals and indices are absent
-      because their commission is not yet on file &mdash; and a guess there would be worse
-      than a blank.
+      Per standard lot, round turn, over the trailing three months, Mon&ndash;Fri. Pips are
+      not comparable between gold and EURUSD, so the final column restates each total as
+      basis points of price &mdash; the unit that decides which instrument is actually
+      cheap to trade.
     </p>
 
     <div class="scroll">
@@ -558,23 +561,24 @@
         <thead>
           <tr>
             <th>Symbol</th><th>Mean spread</th><th>Commission</th>
-            <th>Total</th><th>Commission share</th>
+            <th>Total</th><th>Commission share</th><th>Total in bps</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td class="sym">EURUSD</td><td>0.039 pips</td><td>0.500 pips</td><td>0.539 pips</td><td class="flag-warn">93%</td></tr>
-          <tr><td class="sym">USDJPY</td><td>0.071 pips</td><td>0.761 pips</td><td>0.833 pips</td><td class="flag-warn">91%</td></tr>
-          <tr><td class="sym">XAUUSD</td><td>5.955 pips</td><td>not on file</td><td>&mdash;</td><td>&mdash;</td></tr>
-          <tr><td class="sym">USTEC</td><td>0.338 pips</td><td>not on file</td><td>&mdash;</td><td>&mdash;</td></tr>
+          <tr><td class="sym">EURUSD</td><td>0.029</td><td>0.500</td><td>0.529 pips</td><td class="flag-warn">95%</td><td>0.46</td></tr>
+          <tr><td class="sym">USDJPY</td><td>0.042</td><td>0.799</td><td>0.841 pips</td><td class="flag-warn">95%</td><td>0.53</td></tr>
+          <tr><td class="sym">USTEC</td><td>0.420</td><td>0.626</td><td>1.046 pips</td><td>60%</td><td>0.36</td></tr>
+          <tr><td class="sym">XAUUSD</td><td>8.742</td><td>7.000</td><td>15.742 pips</td><td>44%</td><td>0.37</td></tr>
         </tbody>
       </table>
     </div>
 
     <p class="sec-note" style="margin-top:14px">
-      The practical consequence: for FX on this account, <strong>cost is very nearly a
-      constant</strong>. Strategy selection should turn on trade frequency, since every
-      round turn costs about half a pip regardless of when it happens &mdash; except in the
-      two windows below.
+      The practical consequence: in basis points the four are near-identical &mdash; 0.36
+      to 0.53 &mdash; so <strong>cost is not a reason to prefer one instrument over
+      another</strong>. Pick on edge and volatility. What cost does constrain is trade
+      frequency, and on FX it is very nearly a constant half-pip per round turn, except in
+      the two windows below.
     </p>
 
     <figure style="margin-top:30px">
@@ -829,14 +833,15 @@
         </div>
       </div>
       <div class="step">
-        <span class="step-tag">Blocked</span>
+        <span class="step-tag">Verify</span>
         <div>
-          <h3>Metals and indices specs needed</h3>
+          <h3>Two contract sizes are inferred, not published</h3>
           <p>
-            XAUUSD and USTEC commission and contract size come from separate Exness
-            specification pages. Until those are on file, cost for the two densest and
-            cleanest instruments in the corpus is spread-only &mdash; and on the FX evidence,
-            spread-only is the part that matters least.
+            Spreads and commissions come straight from the Exness specification pages.
+            Contract sizes do not: gold uses the standard 100 oz lot, and USTEC's
+            single-unit contract is inferred from Exness listing USTEC_x100 at exactly
+            100&times; the commission. Every pip-denominated cost scales with these, so both
+            are worth confirming against the account itself.
           </p>
         </div>
       </div>

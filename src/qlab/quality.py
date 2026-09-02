@@ -166,27 +166,35 @@ def month_metrics(parquet_path: Path, spec: SymbolSpec) -> dict:
     }
 
 
-def spec_agreement(monthly: pl.DataFrame, symbol: str, since_year: int = 2024) -> dict:
+def spec_agreement(
+    monthly: pl.DataFrame, symbol: str, trailing_months: int = 3
+) -> dict:
     """Check the feed's mean spread against the broker's published average.
 
     This is the check that a raw zero-spread count cannot give you. The broker
-    quotes an average, so the test is whether the tick-weighted mean spread
-    rounds to the published figure at its stated precision - not whether zero
-    spreads occur.
+    quotes an average, so the test is whether the tick-weighted mean matches that
+    figure - not whether zero spreads occur.
 
-    Exness publishes averages "based on the previous trading day", so the
-    comparison uses recent Mon-Fri data: recent because spreads have compressed
-    considerably since 2020, and Mon-Fri because a single trading day's average
-    cannot include the Sunday reopen, where spread widens tenfold.
+    The window is a **trailing** one, not a fixed start year, because Exness
+    publishes averages "based on the previous trading day". Comparing a
+    point-in-time figure against a multi-year mean produces false alarms on any
+    instrument whose spread has moved: XAUUSD averages 8.7 pips over the last
+    three months, matching the published 9.0, but only 6.0 over 2024-2026,
+    because gold's spread ran 5.8 -> 3.7 -> 9.0 across those years.
 
-    Agreement is judged economically rather than by exact rounding. The published
-    figure carries one decimal place, and any residual spread only matters
-    relative to the commission paid on the same trade - a 0.09 pip discrepancy
-    against 0.76 pips of commission is noise, not a data defect.
+    Mon-Fri, because a single trading day's average cannot include the Sunday
+    reopen, where spread widens by an order of magnitude.
+
+    Agreement is judged economically rather than by exact rounding: residual
+    spread only matters relative to the commission paid on the same trade. A
+    feed quoting *tighter* than published is called out separately - it is a
+    better fill than advertised, not a defect.
     """
     spec = get_spec(symbol)
-    recent = monthly.filter(
-        (pl.col("symbol") == symbol) & (pl.col("year") >= since_year)
+    recent = (
+        monthly.filter(pl.col("symbol") == symbol)
+        .sort(["year", "month"])
+        .tail(trailing_months)
     )
     if recent.is_empty():
         return {"symbol": symbol, "status": "no data"}
@@ -200,13 +208,13 @@ def spec_agreement(monthly: pl.DataFrame, symbol: str, since_year: int = 2024) -
         "symbol": symbol,
         "observed_mean_pips": observed,
         "spec_mean_pips": spec.spec_avg_spread_pips,
-        "since_year": since_year,
+        "trailing_months": trailing_months,
     }
     if spec.spec_avg_spread_pips is None:
         result["status"] = "no published spec on file"
         return result
 
-    deviation = abs(observed - spec.spec_avg_spread_pips)
+    deviation = observed - spec.spec_avg_spread_pips
     tolerance = 0.05  # half the published precision
     if spec.commission_per_lot_side_usd is not None:
         quote_rate = float(recent["price_max"].mean()) if spec.quote_ccy == "JPY" else 1.0
@@ -214,10 +222,13 @@ def spec_agreement(monthly: pl.DataFrame, symbol: str, since_year: int = 2024) -
 
     result["deviation_pips"] = deviation
     result["tolerance_pips"] = tolerance
-    result["agrees"] = deviation <= tolerance
-    result["status"] = (
-        "agrees with spec" if result["agrees"] else "diverges from spec - investigate"
-    )
+    result["agrees"] = abs(deviation) <= tolerance
+    if result["agrees"]:
+        result["status"] = "agrees with spec"
+    elif deviation < 0:
+        result["status"] = "tighter than published"
+    else:
+        result["status"] = "wider than published - investigate"
     return result
 
 
