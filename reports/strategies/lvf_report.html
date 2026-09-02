@@ -1,0 +1,566 @@
+<title>Liquidity Vacuum Fade</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #F4F6F3;
+    --surface: #FFFFFF;
+    --sunken: #ECEFEA;
+    --ink: #131917;
+    --ink-soft: #3D4643;
+    --muted: #5F6864;
+    --rule: #DCE1DB;
+    --rule-strong: #BFC7C0;
+    --edge: #1A7F4E;
+    --commission: #C08600;
+    --execution: #C2321E;
+    --track: #E3E7E1;
+
+    --measure: 34rem;
+    --plate: 54rem;
+
+    --serif: "Newsreader", Georgia, "Times New Roman", serif;
+    --sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0F1412;
+      --surface: #161C19;
+      --sunken: #131917;
+      --ink: #E7EBE7;
+      --ink-soft: #C3CAC5;
+      --muted: #939D97;
+      --rule: #262E2A;
+      --rule-strong: #3A443F;
+      --edge: #2FA971;
+      --commission: #B08612;
+      --execution: #E85E74;
+      --track: #222A26;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1412;
+    --surface: #161C19;
+    --sunken: #131917;
+    --ink: #E7EBE7;
+    --ink-soft: #C3CAC5;
+    --muted: #939D97;
+    --rule: #262E2A;
+    --rule-strong: #3A443F;
+    --edge: #2FA971;
+    --commission: #B08612;
+    --execution: #E85E74;
+    --track: #222A26;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: var(--plate); margin: 0 auto; padding: 0 1.5rem 6rem; }
+
+  .masthead { padding: 4.5rem 0 2.25rem; border-bottom: 2px solid var(--ink); }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 1.25rem;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(2.4rem, 6.5vw, 3.7rem);
+    line-height: 1.03;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0 0 1.5rem;
+  }
+
+  .standfirst {
+    font-family: var(--serif);
+    font-size: clamp(1.1rem, 2.2vw, 1.35rem);
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    margin: 0;
+  }
+
+  .verdict {
+    margin-top: 2.25rem;
+    padding: 1.15rem 1.25rem;
+    background: var(--sunken);
+    border-left: 3px solid var(--execution);
+  }
+
+  .verdict-line {
+    font-family: var(--mono);
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 0 0 0.5rem;
+  }
+
+  .verdict p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+    max-width: none;
+  }
+
+  section { padding-top: 3.5rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--execution);
+    margin: 0 0 0.6rem;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(1.6rem, 3.6vw, 2.1rem);
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 1rem;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin: 2rem 0 0.75rem;
+  }
+
+  p { max-width: var(--measure); margin: 0 0 1.1rem; }
+  .lede { font-size: 1.05rem; color: var(--ink-soft); }
+  strong { font-weight: 600; }
+
+  figure {
+    margin: 1.75rem 0 0;
+    padding: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+  }
+
+  figcaption {
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--rule);
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  .chart { width: 100%; height: auto; display: block; overflow: visible; }
+  .grid-line { stroke: var(--rule); stroke-width: 1; }
+  .zero-line { stroke: var(--rule-strong); stroke-width: 1.5; }
+  .connector { stroke: var(--rule-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+  .axis-text { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+  .bar-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    fill: var(--ink);
+  }
+  .bar-name {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    fill: var(--muted);
+  }
+  .f-edge { fill: var(--edge); }
+  .f-exec { fill: var(--execution); }
+  .f-comm { fill: var(--commission); }
+  .f-net { fill: var(--ink); }
+  .band { fill: var(--sunken); }
+
+  .scroll { overflow-x: auto; margin-top: 1.5rem; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    min-width: 34rem;
+  }
+
+  th, td {
+    padding: 0.6rem 0.8rem;
+    text-align: right;
+    border-bottom: 1px solid var(--rule);
+    font-variant-numeric: tabular-nums;
+  }
+
+  th {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  th:first-child, td:first-child {
+    text-align: left;
+    font-family: var(--mono);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  td { font-family: var(--mono); color: var(--ink-soft); }
+  td.bad { color: var(--execution); font-weight: 600; }
+  td.good { color: var(--edge); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: none; }
+  tr.spec td:first-child::after {
+    content: " *";
+    color: var(--execution);
+  }
+
+  .note {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 0.75rem;
+    max-width: none;
+  }
+
+  .findings {
+    list-style: none;
+    padding: 0;
+    margin: 1.5rem 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    max-width: var(--measure);
+  }
+
+  .findings li { padding-left: 1.1rem; border-left: 2px solid var(--rule-strong); }
+  .findings li.kill { border-left-color: var(--execution); }
+  .findings b { font-weight: 600; display: block; margin-bottom: 0.15rem; }
+  .findings span { color: var(--muted); font-size: 0.92rem; }
+
+  .colophon {
+    margin-top: 4rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    line-height: 1.8;
+    color: var(--muted);
+  }
+
+  a { color: inherit; text-decoration-color: var(--rule-strong); }
+  a:focus-visible { outline: 2px solid var(--execution); outline-offset: 2px; }
+
+  @media (max-width: 640px) {
+    .page { padding: 0 1.1rem 4rem; }
+    .masthead { padding-top: 3rem; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="kicker">QuantProject &middot; strategy study &middot; XAUUSD</p>
+    <h1>Liquidity Vacuum Fade</h1>
+    <p class="standfirst">
+      The signal is real. It is just smaller than the spread it has to cross.
+      Measured on 283 million gold ticks, the edge is worth about thirty dollars
+      a trade and costs a hundred and ten.
+    </p>
+    <div class="verdict">
+      <p class="verdict-line">Dev &minus;71.9% &nbsp;/&nbsp; out of sample &minus;46.3% &nbsp;/&nbsp; do not trade</p>
+      <p>
+        Every sensitivity variant loses, including one with slippage and
+        commission both set to zero. The participation filter that the
+        specification identifies as the active ingredient does not separate
+        reverting moves from non-reverting ones.
+      </p>
+    </div>
+  </header>
+
+  <section>
+    <p class="eyebrow">Where the money goes</p>
+    <h2>An edge of thirty dollars against a cost of a hundred and ten</h2>
+    <p class="lede">
+      Every trade is re-priced twice: once at the actual bid and ask it would
+      have filled at, and once at the mid. The difference between those two is
+      the entire cost of participating, and it is the number that decides this.
+    </p>
+
+    <figure>
+      <svg class="chart" viewBox="0 0 720 400" role="img"
+           aria-label="Waterfall: edge at mid plus $29.89 per trade, minus $90.67 of spread and slippage, minus $19.06 of commission, leaving minus $79.84 net.">
+        <line class="grid-line" x1="90" y1="72.3" x2="670" y2="72.3"></line>
+        <line class="grid-line" x1="90" y1="180.0" x2="670" y2="180.0"></line>
+        <line class="grid-line" x1="90" y1="233.8" x2="670" y2="233.8"></line>
+        <line class="grid-line" x1="90" y1="287.7" x2="670" y2="287.7"></line>
+        <line class="zero-line" x1="90" y1="126.2" x2="670" y2="126.2"></line>
+
+        <text class="axis-text" x="82" y="76" text-anchor="end">+25</text>
+        <text class="axis-text" x="82" y="130" text-anchor="end">0</text>
+        <text class="axis-text" x="82" y="184" text-anchor="end">-25</text>
+        <text class="axis-text" x="82" y="238" text-anchor="end">-50</text>
+        <text class="axis-text" x="82" y="292" text-anchor="end">-75</text>
+        <text class="axis-text" x="90" y="30" text-anchor="start">USD per trade</text>
+
+        <rect class="f-edge" x="120" y="61.8" width="100" height="64.4" rx="2"></rect>
+        <text class="bar-label" x="170" y="52" text-anchor="middle">+29.89</text>
+        <text class="bar-name" x="170" y="345" text-anchor="middle">edge at mid</text>
+        <text class="bar-name" x="170" y="360" text-anchor="middle">(no costs)</text>
+
+        <line class="connector" x1="220" y1="61.8" x2="270" y2="61.8"></line>
+        <rect class="f-exec" x="270" y="61.8" width="100" height="195.3" rx="2"></rect>
+        <text class="bar-label" x="320" y="273" text-anchor="middle">-90.67</text>
+        <text class="bar-name" x="320" y="345" text-anchor="middle">spread +</text>
+        <text class="bar-name" x="320" y="360" text-anchor="middle">slippage</text>
+
+        <line class="connector" x1="370" y1="257.1" x2="420" y2="257.1"></line>
+        <rect class="f-comm" x="420" y="257.1" width="100" height="41.0" rx="2"></rect>
+        <text class="bar-label" x="470" y="314" text-anchor="middle">-19.06</text>
+        <text class="bar-name" x="470" y="345" text-anchor="middle">commission</text>
+        <text class="bar-name" x="470" y="360" text-anchor="middle">$7/lot</text>
+
+        <line class="connector" x1="520" y1="298.1" x2="570" y2="298.1"></line>
+        <rect class="f-net" x="570" y="126.2" width="100" height="171.9" rx="2"></rect>
+        <text class="bar-label" x="620" y="314" text-anchor="middle">-79.84</text>
+        <text class="bar-name" x="620" y="345" text-anchor="middle">net</text>
+        <text class="bar-name" x="620" y="360" text-anchor="middle">per trade</text>
+      </svg>
+
+      <figcaption>
+        Dev split, 900 trades. Totals: edge at mid +$26,901, spread and slippage
+        $81,603, commission $17,157, net &minus;$71,859. The signal is not the
+        problem &mdash; it makes money at mid in three of the four periods
+        tested. It is outvoted three to one by the cost of getting in and out.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <p class="eyebrow">The active ingredient</p>
+    <h2>Participation does not predict reversion</h2>
+    <p class="lede">
+      The specification's central claim is that a big move on a <em>normal or low</em>
+      tick rate is a vacuum that reverts, while the same move on a high tick rate
+      is news that does not. That is testable directly, with no trade
+      construction in the way: take every setup, drop the participation filter,
+      and measure how far the mid comes back.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>rho bucket</th><th>setups</th><th>fade @5min</th>
+            <th>fade @15min</th><th>share positive</th><th>mean move</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="spec"><td>0.0 &ndash; 0.6</td><td>193</td><td>+$0.023</td><td class="bad">-$0.006</td><td>53.9%</td><td>$1.91</td></tr>
+          <tr class="spec"><td>0.6 &ndash; 0.9</td><td>919</td><td>+$0.010</td><td>+$0.062</td><td>52.7%</td><td>$1.89</td></tr>
+          <tr class="spec"><td>0.9 &ndash; 1.2</td><td>1,283</td><td class="bad">-$0.006</td><td>+$0.025</td><td>52.9%</td><td>$1.98</td></tr>
+          <tr><td>1.2 &ndash; 1.5</td><td>732</td><td>+$0.098</td><td class="good">+$0.155</td><td>54.4%</td><td>$2.22</td></tr>
+          <tr><td>1.5 &ndash; 2.0</td><td>415</td><td class="bad">-$0.012</td><td class="bad">-$0.186</td><td>52.3%</td><td>$2.36</td></tr>
+          <tr><td>2.0 and up</td><td>350</td><td class="good">+$0.204</td><td class="good">+$0.165</td><td>56.9%</td><td>$2.83</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      * the three buckets the specification trades. 3,892 setups on the dev split.
+    </p>
+
+    <p style="margin-top:1.5rem">
+      The gradient runs the wrong way. The three buckets the strategy trades
+      average <strong>+$0.038</strong> at fifteen minutes; the buckets it
+      excludes as "news" average <strong>+$0.063</strong>. The single best bucket
+      is the highest-participation one, which the rule is specifically designed
+      to avoid.
+    </p>
+    <p>
+      Neither group is distinguishable from zero. Standard errors put both at
+      <strong>t &asymp; 0.6</strong>, so the honest reading is not "the filter is
+      backwards" but "the filter is not measuring anything". Tightening it to
+      0.9 or removing it entirely both still lose.
+    </p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Results</p>
+    <h2>The same answer in every period</h2>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>period</th><th>trades</th><th>net</th><th>Sharpe</th>
+            <th>max DD</th><th>win rate</th><th>profit factor</th>
+            <th>edge at mid /trade</th><th>cost /trade</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>dev 2020&ndash;2023</td><td>900</td><td class="bad">-71.9%</td><td>-4.51</td><td>-70.5%</td><td>43.2%</td><td>0.42</td><td class="good">+$29.89</td><td>$109.73</td></tr>
+          <tr><td>validation 2024&ndash;H1'25</td><td>166</td><td class="bad">-21.7%</td><td>-2.93</td><td>-23.6%</td><td>46.4%</td><td>0.46</td><td class="bad">-$8.03</td><td>$122.62</td></tr>
+          <tr><td>test H2'25&ndash;2026</td><td>390</td><td class="bad">-31.4%</td><td>-5.00</td><td>-32.4%</td><td>50.3%</td><td>0.59</td><td class="good">+$19.89</td><td>$100.49</td></tr>
+          <tr><td>OOS 2024&ndash;2026</td><td>556</td><td class="bad">-46.3%</td><td>-3.61</td><td>-46.1%</td><td>49.1%</td><td>0.54</td><td class="good">+$8.52</td><td>$91.80</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Sensitivity, dev split</h3>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>variant</th><th>trades</th><th>net</th><th>edge at mid /trade</th><th>cost /trade</th><th>Sharpe</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>as specified</td><td>900</td><td class="bad">-71.9%</td><td>+$29.89</td><td>$109.73</td><td>-4.51</td></tr>
+          <tr><td>pseudocode reset rule</td><td>2,014</td><td class="bad">-95.5%</td><td>+$9.72</td><td>$57.13</td><td>-6.68</td></tr>
+          <tr><td>enter immediately</td><td>1,962</td><td class="bad">-99.1%</td><td>+$10.40</td><td>$60.91</td><td>-7.17</td></tr>
+          <tr><td>zero slippage</td><td>902</td><td class="bad">-39.9%</td><td>+$43.62</td><td>$87.80</td><td>-1.83</td></tr>
+          <tr><td>zero slippage + zero commission</td><td>902</td><td class="bad">-12.5%</td><td>+$43.62</td><td>$57.45</td><td>-0.55</td></tr>
+          <tr><td>V &ge; 2.5 (looser)</td><td>974</td><td class="bad">-75.9%</td><td>+$25.40</td><td>$103.38</td><td>-4.77</td></tr>
+          <tr><td>V &ge; 5.0 (tighter)</td><td>120</td><td class="bad">-22.5%</td><td class="bad">-$31.52</td><td>$156.38</td><td>-2.46</td></tr>
+          <tr><td>no participation filter</td><td>1,337</td><td class="bad">-80.9%</td><td>+$30.64</td><td>$91.17</td><td>-4.84</td></tr>
+          <tr><td>rho &le; 0.9 (tighter)</td><td>455</td><td class="bad">-46.0%</td><td>+$38.30</td><td>$139.33</td><td>-3.06</td></tr>
+          <tr><td>no cluster rule</td><td>1,272</td><td class="bad">-81.4%</td><td>+$29.20</td><td>$93.19</td><td>-4.96</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:1.5rem">
+      The fifth row is the one that ends the discussion. With <strong>no slippage
+      and no commission at all</strong> &mdash; an account no broker offers
+      &mdash; the strategy still loses 12.5%, because the remaining cost is the
+      bid-ask spread and $57.45 of it per trade is more than the $43.62 of edge.
+    </p>
+    <p>
+      Tightening V to 5.0 cuts the loss to &minus;22.5%, but only by trading 120
+      times instead of 900. Its edge at mid is <em>negative</em>. That is a
+      smaller loss, not a better strategy.
+    </p>
+  </section>
+
+  <section>
+    <p class="eyebrow">One thing the spec got backwards</p>
+    <h2>Slippage is not worse in a vacuum</h2>
+    <p class="lede">
+      The specification warns that "vacuum conditions are exactly when slippage
+      is worst". That is measurable: take the mid 250&nbsp;ms after each of the
+      891 entries and sign it against the position.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>measure</th><th>value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>mean adverse drift</td><td class="good">-$0.008 (favourable)</td></tr>
+          <tr><td>median</td><td>-$0.003</td></tr>
+          <tr><td>share of entries adverse</td><td>45.0%</td></tr>
+          <tr><td>charged in this backtest</td><td>$0.120</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:1.5rem">
+      Entries drift very slightly <em>in favour</em> over the fill window, and are
+      adverse less than half the time. The backtest charges about fifteen times
+      the measured magnitude and the strategy still loses, so the assumption
+      being wrong in this direction only strengthens the result.
+    </p>
+  </section>
+
+  <section>
+    <p class="eyebrow">What would have to change</p>
+    <h2>What this rules out, and what it does not</h2>
+    <ul class="findings">
+      <li class="kill">
+        <b>Fading tick-vacuums on gold at this horizon does not work</b>
+        <span>A median hold of 2.1 minutes puts the whole trade inside a window
+        where the round-turn cost is comparable to the entire typical move.
+        Stage 2 measured this independently: on the dev split a gold round turn
+        costs 1.09 bps, and a one-minute bar's mean absolute move is 1.5 times
+        that.</span>
+      </li>
+      <li class="kill">
+        <b>The participation ratio is not a usable filter</b>
+        <span>It does not order setups by how much they revert, in either
+        direction, at any threshold tested. Whatever separates a vacuum from
+        news, quote count over a hundred ticks is not it.</span>
+      </li>
+      <li>
+        <b>The measurement idea is not dead</b>
+        <span>Move per quote is a real quantity and the setups do revert slightly
+        more often than chance &mdash; 53% at fifteen minutes, consistently
+        across buckets. That is a genuine signal. It is roughly one part in
+        twenty of what it would need to be worth trading here.</span>
+      </li>
+      <li>
+        <b>The economics change with the holding period, not the filter</b>
+        <span>Cost is fixed per round turn, so the only lever that moves the
+        ratio by an order of magnitude is holding longer. A version targeting
+        hours rather than minutes would face a cost of about a tenth of the move
+        it is trying to capture, instead of three times it. That is a different
+        strategy, and it would need its own test.</span>
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <p class="eyebrow">Method</p>
+    <h2>How this was run</h2>
+    <p>
+      Tick-by-tick on the raw feed, not on bars. Entries fill at the bid or ask
+      of the tick that triggered them; a long is opened at the ask and closed at
+      the bid. Stops are market orders and take slippage; take-profits are limits
+      and fill at their price or not at all. Commission is $3.50 per lot per side,
+      charged on partial closes in proportion. Size is 0.5% of running equity
+      against the stop distance, one position at a time, with a 2% daily loss
+      limit that blocks new entries.
+    </p>
+    <p>
+      Two guards matter more than the rest. Windows spanning a session gap are
+      refused &mdash; a hundred ticks straddling a weekend show an enormous move
+      on a near-zero tick rate, which is exactly the setup's signature and the
+      one place it means nothing. And the EMA baselines are lagged one tick, so
+      the tick being judged is never part of the baseline judging it.
+    </p>
+    <p>
+      Two ambiguities in the specification were resolved by running both ways.
+      The prose says an extension beyond the extreme cancels the setup while the
+      pseudocode resets its counter; the prose version is the headline and the
+      pseudocode version is in the sensitivity table, losing more. "23:55&ndash;00:15
+      server time" was read as 20:55&ndash;21:15 UTC, the rollover window measured
+      in Stage 2.
+    </p>
+  </section>
+
+  <p class="colophon">
+    283,059,760 XAUUSD ticks, 2020-01-29 to 2026-09-01, Exness raw spread.<br>
+    Dev 2020&ndash;2023 / validation 2024&ndash;H1 2025 / test H2 2025&ndash;2026, fixed before
+    this study and not adjusted after it.<br>
+    Reproduce with <span style="font-weight:600">python scripts/backtest_lvf.py</span>.
+  </p>
+
+</div>

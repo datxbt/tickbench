@@ -370,6 +370,12 @@ swap. And gold's 100 oz lot and USTEC's single index point remain **inferred, no
 published** - every pip-denominated figure above scales linearly with them.
 
 
+## Strategy studies
+
+| strategy | symbol | verdict | report |
+| --- | --- | --- | --- |
+| Liquidity Vacuum Fade | XAUUSD | **rejected** - edge at mid is real but ~1/4 of its execution cost | `reports/strategies/LVF_XAUUSD.md`, [page](https://claude.ai/code/artifact/eebe28fe-7184-40b4-b5e8-46d55c2644ce) |
+
 ## Data quality findings
 
 See `reports/data_quality/DATA_QUALITY.md` for the full report.
