@@ -260,7 +260,8 @@ leakage just moves somewhere harder to see.
 
 ## The cost model
 
-Full report: `reports/cost_model/COST_MODEL.md`.
+Full report: `reports/cost_model/COST_MODEL.md`, or the
+[Stage 2 report page](https://claude.ai/code/artifact/542ca331-d6f6-4621-b476-eebb6d36b2fe).
 
 Three components. Commission is published, so it is arithmetic. Spread is
 observed, so the default reads it off the bar that was actually quoted. Slippage
