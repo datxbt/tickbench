@@ -70,19 +70,19 @@ def test_daily_break_gap_is_not_counted_as_an_outage(tmp_path):
     assert metrics["max_outage_gap_s"] == pytest.approx(4 * 3600)
 
 
-def test_locked_and_crossed_detection(tmp_path):
+def test_zero_spread_and_crossed_detection(tmp_path):
     path = _parquet(
         tmp_path,
         [
-            ("2024-06-03 00:00:00", 1.0, 1.0),  # locked
-            ("2024-06-03 00:00:01", 1.0, 1.0),  # locked
-            ("2024-06-03 00:00:02", 1.0, 1.0002),  # normal
-            ("2024-06-03 00:00:03", 1.0, 0.9999),  # crossed
+            ("2024-06-03 00:00:00", 1.0, 1.0),  # zero spread - normal on this account
+            ("2024-06-03 00:00:01", 1.0, 1.0),  # zero spread
+            ("2024-06-03 00:00:02", 1.0, 1.0002),  # 2 pips
+            ("2024-06-03 00:00:03", 1.0, 0.9999),  # crossed - always corrupt
         ],
     )
     metrics = month_metrics(path, SPEC)
 
-    assert metrics["locked_pct"] == pytest.approx(50.0)
+    assert metrics["zero_spread_pct"] == pytest.approx(50.0)
     assert metrics["crossed_pct"] == pytest.approx(25.0)
     assert metrics["spread_max_pips"] == pytest.approx(2.0, rel=1e-6)
 

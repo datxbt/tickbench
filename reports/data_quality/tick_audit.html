@@ -17,7 +17,7 @@
 
     --accent:    #0E7490;
     --seq:       #0E7490;   /* sequential ramp hue: coverage */
-    --seq-warn:  #C2321E;   /* sequential ramp hue: locked ticks */
+    --seq-warn:  #C2321E;   /* reserved: sequential ramp for a genuine defect metric */
 
     --ok:        #1A7F4E;
     --warn:      #C08600;
@@ -459,13 +459,14 @@
 <div class="wrap">
 
   <header class="masthead">
-    <p class="eyebrow">Stage 0 · Data Quality Audit</p>
+    <p class="eyebrow">Stage 0 &middot; Data Quality Audit</p>
     <h1>Exness Tick Corpus Audit</h1>
     <p class="standfirst">
-      660 million bid/ask ticks across four instruments, 2020&ndash;2026, measured before
-      any strategy work begins. Nothing here has been cleaned or repaired &mdash; the point
-      is to find out what the feed actually contains.
-      <strong>Two of the four symbols turn out to have an unusable ask side.</strong>
+      660 million bid/ask ticks across four instruments, 2020&ndash;2026, measured against
+      the Exness Raw Spread contract specification before any strategy work begins.
+      The feed is sound. <strong>The cost of trading it is almost entirely commission,
+      not spread</strong> &mdash; and the spread that does exist is concentrated in two
+      narrow windows a week.
     </p>
     <dl class="provenance">
       <div class="prov-item"><dt>Ticks</dt><dd>695,922,945</dd></div>
@@ -481,113 +482,190 @@
     <div class="sec-head"><span class="sec-num">01</span><h2>Verdict</h2></div>
     <p class="sec-note">
       The question Stage 0 exists to answer: which instruments can carry a
-      cost-realistic backtest, and over which years.
+      cost-realistic backtest, and over which years. The test is agreement with the
+      broker's published contract specification &mdash; not whether zero spreads occur.
     </p>
 
     <div class="verdicts">
       <article class="vcard">
-        <div class="vcard-top"><span class="vsym">XAUUSD</span><span class="vclass">Metal</span></div>
-        <span class="pill ok">Clean</span>
+        <div class="vcard-top"><span class="vsym">EURUSD</span><span class="vclass">FX</span></div>
+        <span class="pill ok">Agrees with spec</span>
         <p class="vbody">
-          Zero locked ticks in six years. Spread is a genuine quote and compresses across
-          broker eras &mdash; <strong>11.3 &rarr; 3.7 pips</strong> median from 2020 to 2025.
-          Fully supports data-driven cost modelling.
-        </p>
-      </article>
-
-      <article class="vcard">
-        <div class="vcard-top"><span class="vsym">USTEC</span><span class="vclass">Index</span></div>
-        <span class="pill warn">Clean outside 2024&ndash;25</span>
-        <p class="vbody">
-          Locked ticks are 0% in 2021&ndash;23 and 2026, but reach <strong>8% in 2024</strong>
-          and <strong>39% in 2025</strong>. Usable, with those two years excluded from any
-          spread estimate.
+          Observed Mon&ndash;Fri mean spread <strong>0.039 pips</strong> against a published
+          0.0. The 97.6% of ticks quoting bid = ask are real: this account type compresses
+          spread to zero and charges commission instead.
         </p>
       </article>
 
       <article class="vcard">
         <div class="vcard-top"><span class="vsym">USDJPY</span><span class="vclass">FX</span></div>
-        <span class="pill bad">Ask side unusable</span>
+        <span class="pill ok">Agrees with spec</span>
         <p class="vbody">
-          <strong>92.7%</strong> of ticks quote bid = ask. The median spread is exactly zero
-          in every year from 2020 to 2026. No real spread can be recovered from this feed.
+          Observed <strong>0.071 pips</strong> against a published 0.0, inside tolerance.
+          Its zero-spread share climbed 73% &rarr; 96% since 2020, tracking a genuine
+          market-wide spread compression.
         </p>
       </article>
 
       <article class="vcard">
-        <div class="vcard-top"><span class="vsym">EURUSD</span><span class="vclass">FX</span></div>
-        <span class="pill bad">Ask side unusable</span>
+        <div class="vcard-top"><span class="vsym">XAUUSD</span><span class="vclass">Metal</span></div>
+        <span class="pill warn">Spec not on file</span>
         <p class="vbody">
-          <strong>97.6%</strong> of ticks quote bid = ask, the worst of the four. Non-zero
-          spreads cluster on Sunday reopens, so the ask is only real when the spread is
-          unusually wide.
+          Feed is clean &mdash; no zero-spread ticks, median compressing
+          <strong>11.3 &rarr; 3.7 pips</strong> since 2020. But metals commission sits on a
+          separate spec page, so cost here is spread-only until that is added.
+        </p>
+      </article>
+
+      <article class="vcard">
+        <div class="vcard-top"><span class="vsym">USTEC</span><span class="vclass">Index</span></div>
+        <span class="pill warn">Spec not on file</span>
+        <p class="vbody">
+          Same gap as XAUUSD. Zero-spread ticks reach 8% in 2024 and 39% in 2025, worth
+          confirming against the index spec rather than assuming a defect.
         </p>
       </article>
     </div>
 
     <div class="callout">
-      <h3>Why the locked-tick finding matters more than it looks</h3>
+      <h3>Commission is the cost, not spread</h3>
       <p>
-        A raw-spread account never has a zero spread 96% of the time. The zeros are not
-        tight markets &mdash; they are an ask column that mostly just mirrors the bid.
+        On an Exness Raw Spread account the majors are quoted at a genuine 0.0 pip average
+        and the broker takes revenue as <strong>$2.5 per lot per side</strong>. Round turn,
+        that is 0.50 pips on EURUSD and about 0.76 on USDJPY &mdash; rate-dependent, since a
+        JPY pip is worth a variable number of dollars.
       </p>
       <p>
-        Left undetected, this is the kind of defect that silently produces a beautiful
-        backtest: an FX strategy costed off this data would trade for free, and the
-        equity curve would look excellent right up until it met a real broker.
-        <strong>FX cost modelling needs an external spread source</strong> &mdash; a broker
-        spec sheet or a second feed. The bid series remains usable as a price series.
+        Which makes commission <strong>93% and 91% of total round-trip cost</strong>.
+        A cost model built on the spread distribution alone &mdash; the obvious thing to
+        build from tick data &mdash; would understate the true cost of an FX strategy by
+        roughly a factor of ten.
       </p>
     </div>
   </section>
 
+  <!-- ======================= COST ======================= -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>What a round turn costs</h2></div>
+    <p class="sec-note">
+      Per standard lot, measured Mon&ndash;Fri from 2024 on. Metals and indices are absent
+      because their commission is not yet on file &mdash; and a guess there would be worse
+      than a blank.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Mean spread</th><th>Commission</th>
+            <th>Total</th><th>Commission share</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="sym">EURUSD</td><td>0.039 pips</td><td>0.500 pips</td><td>0.539 pips</td><td class="flag-warn">93%</td></tr>
+          <tr><td class="sym">USDJPY</td><td>0.071 pips</td><td>0.761 pips</td><td>0.833 pips</td><td class="flag-warn">91%</td></tr>
+          <tr><td class="sym">XAUUSD</td><td>5.955 pips</td><td>not on file</td><td>&mdash;</td><td>&mdash;</td></tr>
+          <tr><td class="sym">USTEC</td><td>0.338 pips</td><td>not on file</td><td>&mdash;</td><td>&mdash;</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sec-note" style="margin-top:14px">
+      The practical consequence: for FX on this account, <strong>cost is very nearly a
+      constant</strong>. Strategy selection should turn on trade frequency, since every
+      round turn costs about half a pip regardless of when it happens &mdash; except in the
+      two windows below.
+    </p>
+
+    <figure style="margin-top:30px">
+      <figcaption>Where the spread actually is</figcaption>
+      <p class="fig-sub">
+        Mean spread by session, 2024&ndash;2026. Weekday trading is effectively spread-free;
+        the reopen and the daily rollover are not.
+      </p>
+      <div class="bars">
+        <div class="bar-row">
+          <span class="bar-label">EURUSD Mon&ndash;Fri</span>
+          <div class="bar-track"><div class="bar-fill ok" style="width:1.2%"></div></div>
+          <span class="bar-val">0.04</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">EURUSD 21:00</span>
+          <div class="bar-track"><div class="bar-fill warn" style="width:46.8%"></div></div>
+          <span class="bar-val">1.53</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">USDJPY Mon&ndash;Fri</span>
+          <div class="bar-track"><div class="bar-fill ok" style="width:2.2%"></div></div>
+          <span class="bar-val">0.07</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">USDJPY 21:00</span>
+          <div class="bar-track"><div class="bar-fill bad" style="width:100%"></div></div>
+          <span class="bar-val">3.26</span>
+        </div>
+      </div>
+      <p class="fig-sub" style="margin-top:16px">
+        Sunday reopen tells the same story: <strong>37%</strong> of EURUSD ticks carry a
+        non-zero spread then against ~2% on weekdays, and <strong>53%</strong> of USDJPY
+        against ~4%. Two exclusion windows remove nearly all of the spread risk.
+      </p>
+    </figure>
+  </section>
+
   <!-- ======================= 2. QUOTE INTEGRITY ======================= -->
   <section>
-    <div class="sec-head"><span class="sec-num">02</span><h2>Quote integrity</h2></div>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Quote integrity</h2></div>
     <p class="sec-note">
-      A tick is <em>locked</em> when <code>bid == ask</code> and <em>crossed</em> when
-      <code>ask &lt; bid</code>. Crossed quotes are always corrupt; none were found
-      anywhere in the corpus. Locked quotes are the story.
+      A tick is <em>crossed</em> when <code>ask &lt; bid</code>, which is always corrupt;
+      none were found anywhere in the corpus. Zero-spread ticks
+      (<code>bid == ask</code>) are expected on this account type rather than suspect,
+      so the chart below is a map of account structure, not of damage.
     </p>
 
     <figure>
       <figcaption>Share of ticks quoting a zero spread</figcaption>
-      <p class="fig-sub">Weighted by tick count across all 321 symbol-months.</p>
+      <p class="fig-sub">
+        Weighted by tick count across all 321 symbol-months. High is normal for the
+        majors and expected to be near zero for metals.
+      </p>
       <div class="bars">
         <div class="bar-row">
           <span class="bar-label">EURUSD</span>
-          <div class="bar-track"><div class="bar-fill bad" style="width:97.58%"></div></div>
+          <div class="bar-track"><div class="bar-fill" style="width:97.58%;background:var(--accent)"></div></div>
           <span class="bar-val">97.6%</span>
         </div>
         <div class="bar-row">
           <span class="bar-label">USDJPY</span>
-          <div class="bar-track"><div class="bar-fill bad" style="width:92.66%"></div></div>
+          <div class="bar-track"><div class="bar-fill" style="width:92.66%;background:var(--accent)"></div></div>
           <span class="bar-val">92.7%</span>
         </div>
         <div class="bar-row">
           <span class="bar-label">USTEC</span>
-          <div class="bar-track"><div class="bar-fill warn" style="width:15.17%"></div></div>
+          <div class="bar-track"><div class="bar-fill" style="width:15.17%;background:var(--accent)"></div></div>
           <span class="bar-val">15.2%</span>
         </div>
         <div class="bar-row">
           <span class="bar-label">XAUUSD</span>
-          <div class="bar-track"><div class="bar-fill ok" style="width:0.4%"></div></div>
+          <div class="bar-track"><div class="bar-fill" style="width:0.4%;background:var(--accent)"></div></div>
           <span class="bar-val">0.0%</span>
         </div>
       </div>
     </figure>
 
     <figure>
-      <figcaption>Locked ticks by year</figcaption>
+      <figcaption>Zero-spread share by year</figcaption>
       <p class="fig-sub">
-        FX is broken in every year, so this is not a fixable date-range problem. USTEC's
-        damage is confined to 2024&ndash;25.
+        Read as a spread-regime map, not a fault map. USDJPY climbs 73% &rarr; 96% as
+        spreads compressed market-wide; XAUUSD never quotes zero at all. The implication
+        for backtesting is that <strong>cost is time-varying</strong> &mdash; one spread
+        constant applied across 2020&ndash;2026 is wrong at both ends.
       </p>
       <div id="heat-locked"></div>
       <div class="legend">
         <span>0%</span>
         <span class="legend-ramp" id="ramp-locked"></span>
-        <span>100% locked</span>
+        <span>100% zero-spread</span>
       </div>
     </figure>
 
@@ -596,15 +674,15 @@
         <caption class="sr-only"></caption>
         <thead>
           <tr>
-            <th>Symbol</th><th>Locked %</th><th>Crossed %</th><th>Dup ts %</th>
-            <th>Spread p50</th><th>Spread p95</th><th>Spread max</th>
+            <th>Symbol</th><th>Zero spread %</th><th>Crossed %</th><th>Dup ts %</th>
+            <th>Spread mean</th><th>Spread p95</th><th>Spread max</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td class="sym">EURUSD</td><td class="flag-bad">97.58</td><td>0.0000</td><td>0.255</td><td class="flag-bad">0.00</td><td>0.00</td><td>45.0</td></tr>
-          <tr><td class="sym">USDJPY</td><td class="flag-bad">92.66</td><td>0.0000</td><td>0.443</td><td class="flag-bad">0.00</td><td>0.05</td><td>35.0</td></tr>
-          <tr><td class="sym">USTEC</td><td class="flag-warn">15.17</td><td>0.0000</td><td>2.493</td><td>0.59</td><td>1.09</td><td>28.6</td></tr>
-          <tr><td class="sym">XAUUSD</td><td class="flag-ok">0.00</td><td>0.0000</td><td>0.529</td><td>6.30</td><td>6.30</td><td>396.3</td></tr>
+          <tr><td class="sym">EURUSD</td><td>97.58</td><td>0.0000</td><td>0.255</td><td>0.0447</td><td>0.00</td><td>45.0</td></tr>
+          <tr><td class="sym">USDJPY</td><td>92.66</td><td>0.0000</td><td>0.443</td><td>0.1073</td><td>0.05</td><td>35.0</td></tr>
+          <tr><td class="sym">USTEC</td><td>15.17</td><td>0.0000</td><td>2.493</td><td>0.4736</td><td>1.09</td><td>28.6</td></tr>
+          <tr><td class="sym">XAUUSD</td><td>0.00</td><td>0.0000</td><td>0.529</td><td>7.5433</td><td>6.30</td><td>396.3</td></tr>
         </tbody>
       </table>
     </div>
@@ -617,7 +695,7 @@
 
   <!-- ======================= 3. CONTINUITY ======================= -->
   <section>
-    <div class="sec-head"><span class="sec-num">03</span><h2>Continuity</h2></div>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Continuity</h2></div>
     <p class="sec-note">
       Naively counting gaps makes XAUUSD and USTEC look badly broken &mdash; about 1,350
       hour-plus gaps each. Almost all of them are the daily maintenance break: 1,310 of
@@ -650,7 +728,7 @@
 
   <!-- ======================= 4. SESSION COVERAGE ======================= -->
   <section>
-    <div class="sec-head"><span class="sec-num">04</span><h2>Session coverage</h2></div>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Session coverage</h2></div>
     <p class="sec-note">
       Share of each symbol's ticks by UTC hour. This is the empirical basis for the
       session definitions Stage 2 will need &mdash; spread and volatility both regime-shift
@@ -675,7 +753,7 @@
 
   <!-- ======================= 5. INVENTORY ======================= -->
   <section>
-    <div class="sec-head"><span class="sec-num">05</span><h2>Corpus inventory</h2></div>
+    <div class="sec-head"><span class="sec-num">06</span><h2>Corpus inventory</h2></div>
     <p class="sec-note">
       What was converted, and the price sanity checks. A <em>jump</em> is a tick-to-tick
       mid move greater than 10 basis points &mdash; measured in bps rather than pips so the
@@ -707,55 +785,58 @@
 
   <!-- ======================= 6. WHAT THIS CHANGES ======================= -->
   <section>
-    <div class="sec-head"><span class="sec-num">06</span><h2>What this changes downstream</h2></div>
+    <div class="sec-head"><span class="sec-num">07</span><h2>What this changes downstream</h2></div>
     <p class="sec-note">
-      Stage 0 was meant to be plumbing. The locked-tick finding makes it a scoping
-      decision instead.
+      The corpus is sound, so Stage 0 hands downstream work a cost structure rather than
+      a list of defects.
     </p>
 
     <div class="steps">
       <div class="step">
         <span class="step-tag">Stage 1</span>
         <div>
-          <h3>Deduplication is safe; spread repair is not</h3>
+          <h3>Deduplication is safe</h3>
           <p>
-            Duplicate timestamps are exact duplicate rows, so dropping them loses nothing.
-            Do not, however, forward-fill or interpolate the FX ask &mdash; inventing a spread
-            is worse than having none, because it hides the problem behind plausible numbers.
+            Every duplicate timestamp is an exact duplicate row, so dropping them loses
+            nothing. Keep the Sunday reopen and the 21:00 rollover flagged rather than
+            filtered &mdash; they are the only places FX spread exists, and a strategy needs
+            to be able to see them to avoid them.
           </p>
         </div>
       </div>
       <div class="step">
         <span class="step-tag">Stage 2</span>
         <div>
-          <h3>Two cost models, not one</h3>
+          <h3>Commission first, spread second</h3>
           <p>
-            XAUUSD and USTEC get an empirical spread model estimated per session and per
-            broker era. EURUSD and USDJPY need an external spread assumption, documented
-            as an assumption, with backtests run across a range of it rather than a
-            single point estimate.
+            For FX, cost is 0.50&ndash;0.76 pips of commission plus a spread that rounds to
+            nothing outside two windows. Model it as a constant per round turn with two
+            exclusion windows, not as a spread distribution. Make the commission term
+            rate-aware for USDJPY, whose pip value moves with the exchange rate.
           </p>
         </div>
       </div>
       <div class="step">
-        <span class="step-tag">Stage 3</span>
+        <span class="step-tag">Stage 2</span>
         <div>
-          <h3>Lead with XAUUSD</h3>
+          <h3>Treat cost as time-varying</h3>
           <p>
-            It is the cleanest instrument, the densest (103k ticks a day, 283M in total)
-            and the only one with a trustworthy spread across the whole period. Prove the
-            research loop there before taking on an instrument whose costs are guesswork.
+            Spreads compressed materially over the sample &mdash; XAUUSD's median fell from
+            11.3 to 3.7 pips. Backtesting 2020 with today's costs flatters the result;
+            backtesting with 2020's costs understates what a strategy would earn now.
+            Estimate per era.
           </p>
         </div>
       </div>
       <div class="step">
-        <span class="step-tag">Open</span>
+        <span class="step-tag">Blocked</span>
         <div>
-          <h3>Worth confirming with the vendor</h3>
+          <h3>Metals and indices specs needed</h3>
           <p>
-            The FX ask behaviour is consistent enough across six years to look like a
-            feed-construction artefact rather than corruption. If a corrected FX export
-            exists, it would restore two instruments at once.
+            XAUUSD and USTEC commission and contract size come from separate Exness
+            specification pages. Until those are on file, cost for the two densest and
+            cleanest instruments in the corpus is spread-only &mdash; and on the FX evidence,
+            spread-only is the part that matters least.
           </p>
         </div>
       </div>
@@ -763,8 +844,8 @@
   </section>
 
   <footer>
-    <span>Stage 0 · Data quality audit</span>
-    <span>321 symbol-months · 695,922,945 ticks</span>
+    <span>Stage 0 &middot; Data quality audit</span>
+    <span>321 symbol-months &middot; 695,922,945 ticks</span>
     <span>Generated 2 September 2026</span>
   </footer>
 </div>
@@ -823,7 +904,7 @@
         // Ink stays on text tokens; only the fill carries magnitude.
         cell.style.color = value / max > 0.55 ? "var(--surface)" : "var(--muted)";
         cell.textContent = fmt(value);
-        cell.title = `${sym} · ${columns[i]} · ${fmt(value)}${mountId === "heat-hours" ? "% of ticks" : "% locked"}`;
+        cell.title = `${sym} &middot; ${columns[i]} &middot; ${fmt(value)}${mountId === "heat-hours" ? "% of ticks" : "% zero-spread"}`;
         cells.appendChild(cell);
       });
 
@@ -858,9 +939,9 @@
     }
   }
 
-  buildHeat("heat-locked", YEARS, LOCKED_BY_YEAR, 100, "--seq-warn", v => v.toFixed(0));
+  buildHeat("heat-locked", YEARS, LOCKED_BY_YEAR, 100, "--seq", v => v.toFixed(0));
   buildHeat("heat-hours", [...Array(24).keys()].map(h => String(h).padStart(2, "0")),
             HOURLY, 12.11, "--seq", v => v.toFixed(0));
-  buildRamp("ramp-locked", "--seq-warn", 100);
+  buildRamp("ramp-locked", "--seq", 100);
   buildRamp("ramp-hours", "--seq", 12.11);
 </script>

@@ -101,28 +101,41 @@ can be added and re-run in minutes without touching the 48 GB source.
 interrupted run can never leave a truncated file that the resume logic would
 mistake for finished work.
 
-## Known data defects
+## Data quality findings
 
-See `reports/data_quality/DATA_QUALITY.md` for the full report. The headline
-finding from Stage 0:
+See `reports/data_quality/DATA_QUALITY.md` for the full report.
 
-- **EURUSD and USDJPY have an unusable ask side.** 97.6% and 92.7% of ticks are
-  locked (`bid == ask`), in every year from 2020 to 2026. The non-zero spreads
-  cluster on Sunday reopens, so the ask is only a genuine quote when the spread
-  is unusually wide. A raw-spread account never has a zero spread 96% of the
-  time - the empirical spread distribution from these files is not a real
-  spread. The bid series is still usable as a price series, but **cost modelling
-  for FX needs an external spread source** (broker spec sheet or a second feed).
-- **XAUUSD is clean.** Zero locked ticks and a realistic spread that compresses
-  across broker eras (0.21 -> 0.04 on the June sample), so it fully supports
-  data-driven cost modelling.
-- **USTEC is clean apart from 2024-2025.** Locked ticks are 0% in 2021-2023 and
-  2026 but reach 8% in 2024 and 39% in 2025; treat those two years' spreads
-  with care.
+**All four symbols are usable.** The corpus agrees with the broker's published
+contract specification wherever that specification is on file.
+
+- **Zero spread on the majors is correct, not a defect.** EURUSD quotes
+  `bid == ask` on 97.6% of ticks and USDJPY on 92.7%. This is what an Exness Raw
+  Spread account *is*: the published average spread for both is 0.0 pips and the
+  broker takes revenue as commission instead. Observed Mon-Fri means of 0.039 and
+  0.071 pips agree with that spec.
+- **Commission is the cost, not spread.** At $2.5 per lot per side, round-turn
+  commission is 0.50 pips on EURUSD and about 0.76 on USDJPY (rate-dependent,
+  since a JPY pip is worth a variable number of dollars). That is **93% and 91%
+  of total round-turn cost** - a spread-only cost model would understate the
+  true cost roughly tenfold.
+- **Spread is regime-dependent, and the regimes are sharp.** Weekdays run ~2-5%
+  non-zero spread, but the Sunday reopen hits 37% (EURUSD) and 53% (USDJPY), and
+  21:00 UTC - the daily rollover - averages 1.5 and 3.3 pips. Avoiding those two
+  windows matters far more than anything else in the FX cost model.
+- **Spreads have compressed since 2020.** XAUUSD's median went 11.3 -> 3.7 pips
+  and USDJPY's zero-spread share went 73% -> 96%. Cost is time-varying; a single
+  spread constant applied across 2020-2026 will be wrong at both ends.
 - **Gaps are mostly the daily maintenance break, not outages.** XAUUSD and USTEC
   each show ~1,600 routine session breaks; once those and weekends are excluded,
-  genuine hour-plus outages fall to 51 and 65 respectively over six years. FX has
-  no daily break, so its 16 and 12 hour-plus gaps are all real downtime.
-- **Duplicate timestamps are benign so far.** 0.25-2.5% of ticks share a
-  timestamp with the previous one, but they are exact duplicate rows, so
-  deduplication in Stage 1 will be lossless.
+  genuine hour-plus outages fall to 51 and 65 over six years. FX has no daily
+  break, so its 16 and 12 hour-plus gaps are all real downtime.
+- **Duplicate timestamps are benign.** 0.25-2.5% of ticks share a timestamp with
+  the previous one, but they are exact duplicate rows, so deduplication in
+  Stage 1 will be lossless.
+
+### Open item
+
+`symbols.py` carries the Exness Raw Spread FX terms. **XAUUSD and USTEC
+commission and contract size are not filled in** - metals and indices sit on
+separate specification pages. Until they are, cost estimates for those two cover
+spread only, and `SymbolSpec.commission_pips()` raises rather than guessing.

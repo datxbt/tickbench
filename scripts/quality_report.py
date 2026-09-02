@@ -22,10 +22,6 @@ import polars as pl
 from qlab import paths, quality
 from qlab.symbols import ALL_SYMBOLS, get_spec
 
-# Fraction of ticks with bid == ask above which the ask side is considered
-# unusable for spread/cost modelling.
-LOCKED_UNUSABLE_PCT = 50.0
-
 
 def _fmt(value: float, digits: int = 2) -> str:
     return "-" if value is None else f"{value:,.{digits}f}"
@@ -61,24 +57,82 @@ def build_markdown(monthly: pl.DataFrame, hourly: pl.DataFrame) -> str:
         "",
         "## 2. Quote integrity",
         "",
-        "`locked` = ticks where bid == ask (zero spread). A raw-spread feed should",
-        "almost never be locked; a high figure means the ask side is not a real quote.",
-        "`crossed` = ask < bid, which is always corrupt.",
+        "`zero spread` = ticks where bid == ask. On an Exness Raw Spread account this",
+        "is expected rather than suspect: the majors are quoted at a published 0.0 pip",
+        "average and the broker charges commission instead. `crossed` = ask < bid,",
+        "which is always corrupt.",
         "",
-        "| Symbol | Locked % | Crossed % | Dup ts % | Out-of-order files | Spread p50 (pips) | Spread p95 | Spread max |",
+        "| Symbol | Zero spread % | Crossed % | Dup ts % | Out-of-order files | Spread mean (pips) | p95 | max |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
 
     for symbol in sorted(monthly["symbol"].unique().to_list()):
         sub = monthly.filter(pl.col("symbol") == symbol)
         weights = sub["rows"]
-        locked = (sub["locked_pct"] * weights).sum() / weights.sum()
+        zero = (sub["zero_spread_pct"] * weights).sum() / weights.sum()
         crossed = (sub["crossed_pct"] * weights).sum() / weights.sum()
         dup = (sub["duplicate_ts_pct"] * weights).sum() / weights.sum()
+        mean_spread = (sub["spread_mean_pips"] * weights).sum() / weights.sum()
         lines.append(
-            f"| {symbol} | {locked:.2f} | {crossed:.4f} | {dup:.3f} | "
-            f"{int(sub['out_of_order'].sum())} | {_fmt(sub['spread_p50_pips'].median())} | "
+            f"| {symbol} | {zero:.2f} | {crossed:.4f} | {dup:.3f} | "
+            f"{int(sub['out_of_order'].sum())} | {mean_spread:.4f} | "
             f"{_fmt(sub['spread_p95_pips'].median())} | {_fmt(sub['spread_max_pips'].max())} |"
+        )
+
+    # --- Agreement with the published contract specification -----------------
+    lines += [
+        "",
+        "### Agreement with the broker's published spec",
+        "",
+        "The real test of the ask side. Exness publishes an average spread per symbol,",
+        "so the check is whether the tick-weighted mean matches it - not whether zero",
+        "spreads occur. Measured Mon-Fri from 2024 on, to match the single-weekday",
+        "basis of the published figure.",
+        "",
+        "| Symbol | Observed mean (pips, Mon-Fri 2024+) | Published avg | Tolerance | Verdict |",
+        "| --- | ---: | ---: | ---: | --- |",
+    ]
+    for symbol in sorted(monthly["symbol"].unique().to_list()):
+        check = quality.spec_agreement(monthly, symbol)
+        spec_value = check.get("spec_mean_pips")
+        tolerance = check.get("tolerance_pips")
+        lines.append(
+            f"| {symbol} | {check.get('observed_mean_pips', float('nan')):.4f} | "
+            f"{'-' if spec_value is None else f'{spec_value:.1f}'} | "
+            f"{'-' if tolerance is None else f'±{tolerance:.2f}'} | {check['status']} |"
+        )
+
+    # --- Round-turn cost decomposition ---------------------------------------
+    lines += [
+        "",
+        "### Round-turn cost",
+        "",
+        "Commission is the missing half of the cost picture: on the majors it dwarfs",
+        "the spread. Quoted per standard lot, round turn, Mon-Fri from 2024 on.",
+        "",
+        "| Symbol | Mean spread (pips) | Commission (pips) | Total (pips) | Commission share |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for symbol in sorted(monthly["symbol"].unique().to_list()):
+        spec = get_spec(symbol)
+        sub = monthly.filter((pl.col("symbol") == symbol) & (pl.col("year") >= 2024))
+        weights = sub["rows"]
+        spread = float((sub["spread_mean_mon_fri_pips"] * weights).sum() / weights.sum())
+        if spec.commission_per_lot_side_usd is None:
+            lines.append(
+                f"| {symbol} | {spread:.4f} | not on file | - | - |"
+            )
+            continue
+        # USDJPY's pip is worth a rate-dependent amount of USD; use the period's
+        # own mean price rather than a hard-coded rate.
+        rate = 1.0
+        if spec.quote_ccy == "JPY":
+            rate = float((sub["price_max"] + sub["price_min"]).mean() / 2)
+        commission = spec.commission_pips(rate)
+        total = spread + commission
+        lines.append(
+            f"| {symbol} | {spread:.4f} | {commission:.3f} | {total:.3f} | "
+            f"{100 * commission / total:.0f}% |"
         )
 
     lines += [
@@ -126,33 +180,21 @@ def build_markdown(monthly: pl.DataFrame, hourly: pl.DataFrame) -> str:
     lines += ["", "## 5. Verdict", ""]
     for symbol in sorted(monthly["symbol"].unique().to_list()):
         sub = monthly.filter(pl.col("symbol") == symbol)
-        weights = sub["rows"]
-        locked = (sub["locked_pct"] * weights).sum() / weights.sum()
         issues: list[str] = []
-        if locked >= LOCKED_UNUSABLE_PCT:
+        check = quality.spec_agreement(monthly, symbol)
+        if check.get("agrees") is False:
             issues.append(
-                f"**ask side unusable** - {locked:.1f}% of ticks are locked "
-                f"(bid == ask), so the empirical spread distribution is not a real "
-                f"spread. Cost modelling for this symbol needs an external spread "
-                f"source; the bid series is still usable as a price series."
+                f"observed mean spread {check['observed_mean_pips']:.3f} pips does not "
+                f"match the published {check['spec_mean_pips']:.1f} - investigate before "
+                f"trusting the ask side"
+            )
+        elif check.get("agrees") is None:
+            issues.append(
+                "no published contract spec on file - add it before cost modelling"
             )
         if sub["crossed_pct"].max() and sub["crossed_pct"].max() > 0:
             issues.append(
                 f"crossed quotes present (max {sub['crossed_pct'].max():.4f}% in a month)"
-            )
-        # Years where the ask side degrades, even if the symbol is fine overall.
-        by_year = sub.group_by("year").agg(
-            locked=(pl.col("locked_pct") * pl.col("rows")).sum() / pl.col("rows").sum()
-        ).sort("year")
-        bad_years = [
-            f"{row['year']} ({row['locked']:.0f}%)"
-            for row in by_year.iter_rows(named=True)
-            if row["locked"] >= 5.0
-        ]
-        if bad_years and locked < LOCKED_UNUSABLE_PCT:
-            issues.append(
-                "locked ticks concentrated in " + ", ".join(bad_years) +
-                " - treat those years' spreads with care"
             )
         if int(sub["missing_weekdays"].sum()) > 0:
             issues.append(f"{int(sub['missing_weekdays'].sum())} weekdays with no data")
@@ -213,7 +255,7 @@ def main() -> int:
         records.append(record)
         print(
             f"  {record['symbol']} {record['year']}-{record['month']:02d} "
-            f"rows={record['rows']:>10,} locked={record['locked_pct']:6.2f}%",
+            f"rows={record['rows']:>10,} zero_spread={record['zero_spread_pct']:6.2f}%",
             flush=True,
         )
 

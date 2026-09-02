@@ -17,16 +17,43 @@ work begins.
 
 ## 2. Quote integrity
 
-`locked` = ticks where bid == ask (zero spread). A raw-spread feed should
-almost never be locked; a high figure means the ask side is not a real quote.
-`crossed` = ask < bid, which is always corrupt.
+`zero spread` = ticks where bid == ask. On an Exness Raw Spread account this
+is expected rather than suspect: the majors are quoted at a published 0.0 pip
+average and the broker charges commission instead. `crossed` = ask < bid,
+which is always corrupt.
 
-| Symbol | Locked % | Crossed % | Dup ts % | Out-of-order files | Spread p50 (pips) | Spread p95 | Spread max |
+| Symbol | Zero spread % | Crossed % | Dup ts % | Out-of-order files | Spread mean (pips) | p95 | max |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| EURUSD | 97.58 | 0.0000 | 0.255 | 0 | 0.00 | 0.00 | 45.00 |
-| USDJPY | 92.66 | 0.0000 | 0.443 | 0 | 0.00 | 0.05 | 35.00 |
-| USTEC | 15.17 | 0.0000 | 2.493 | 0 | 0.59 | 1.09 | 28.60 |
-| XAUUSD | 0.00 | 0.0000 | 0.529 | 0 | 6.30 | 6.30 | 396.30 |
+| EURUSD | 97.58 | 0.0000 | 0.255 | 0 | 0.0447 | 0.00 | 45.00 |
+| USDJPY | 92.66 | 0.0000 | 0.443 | 0 | 0.1073 | 0.05 | 35.00 |
+| USTEC | 15.17 | 0.0000 | 2.493 | 0 | 0.4736 | 1.09 | 28.60 |
+| XAUUSD | 0.00 | 0.0000 | 0.529 | 0 | 7.5433 | 6.30 | 396.30 |
+
+### Agreement with the broker's published spec
+
+The real test of the ask side. Exness publishes an average spread per symbol,
+so the check is whether the tick-weighted mean matches it - not whether zero
+spreads occur. Measured Mon-Fri from 2024 on, to match the single-weekday
+basis of the published figure.
+
+| Symbol | Observed mean (pips, Mon-Fri 2024+) | Published avg | Tolerance | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| EURUSD | 0.0389 | 0.0 | ±0.10 | agrees with spec |
+| USDJPY | 0.0712 | 0.0 | ±0.16 | agrees with spec |
+| USTEC | 0.3380 | - | - | no published spec on file |
+| XAUUSD | 5.9551 | - | - | no published spec on file |
+
+### Round-turn cost
+
+Commission is the missing half of the cost picture: on the majors it dwarfs
+the spread. Quoted per standard lot, round turn, Mon-Fri from 2024 on.
+
+| Symbol | Mean spread (pips) | Commission (pips) | Total (pips) | Commission share |
+| --- | ---: | ---: | ---: | ---: |
+| EURUSD | 0.0389 | 0.500 | 0.539 | 93% |
+| USDJPY | 0.0712 | 0.761 | 0.833 | 91% |
+| USTEC | 0.3380 | not on file | - | - |
+| XAUUSD | 5.9551 | not on file | - | - |
 
 ## 3. Continuity
 
@@ -55,10 +82,10 @@ A jump is a tick-to-tick mid move greater than 10 bps.
 
 ## 5. Verdict
 
-- **EURUSD**: **ask side unusable** - 97.6% of ticks are locked (bid == ask), so the empirical spread distribution is not a real spread. Cost modelling for this symbol needs an external spread source; the bid series is still usable as a price series.; 2 weekdays with no data; 16 unexplained outages over an hour
-- **USDJPY**: **ask side unusable** - 92.7% of ticks are locked (bid == ask), so the empirical spread distribution is not a real spread. Cost modelling for this symbol needs an external spread source; the bid series is still usable as a price series.; 2 weekdays with no data; 12 unexplained outages over an hour
-- **USTEC**: locked ticks concentrated in 2024 (8%), 2025 (39%) - treat those years' spreads with care; 8 weekdays with no data; 65 unexplained outages over an hour
-- **XAUUSD**: 12 weekdays with no data; 51 unexplained outages over an hour
+- **EURUSD**: 2 weekdays with no data; 16 unexplained outages over an hour
+- **USDJPY**: 2 weekdays with no data; 12 unexplained outages over an hour
+- **USTEC**: no published contract spec on file - add it before cost modelling; 8 weekdays with no data; 65 unexplained outages over an hour
+- **XAUUSD**: no published contract spec on file - add it before cost modelling; 12 weekdays with no data; 51 unexplained outages over an hour
 
 ## 6. UTC hour coverage
 

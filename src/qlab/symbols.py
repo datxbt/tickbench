@@ -39,6 +39,16 @@ class SymbolSpec:
     one per trading day. FX shows no such cluster.
     """
 
+    # --- Broker account terms (Exness Raw Spread) ----------------------------
+    # From the published contract specification, not inferred from the feed.
+    # On this account type the majors quote a genuine zero spread most of the
+    # time and the broker takes revenue as commission instead, so a spread-only
+    # cost model understates the true cost by roughly an order of magnitude.
+    spec_avg_spread_pips: float | None = None
+    commission_per_lot_side_usd: float | None = None
+    contract_size: float | None = None
+    quote_ccy: str = "USD"
+
     @property
     def point(self) -> float:
         """Smallest quotable price increment."""
@@ -50,6 +60,26 @@ class SymbolSpec:
         start, end = self.daily_break_utc
         return start <= hour < end
 
+    def pip_value_usd(self, quote_per_usd: float = 1.0) -> float:
+        """USD value of one pip on one standard lot.
+
+        ``quote_per_usd`` is how many units of the quote currency one USD buys -
+        1.0 for a USD-quoted symbol, and the prevailing rate for a JPY-quoted one
+        (for USDJPY that is simply the symbol's own price).
+        """
+        if self.contract_size is None:
+            raise ValueError(f"{self.name}: contract_size not specified")
+        return self.contract_size * self.pip / quote_per_usd
+
+    def commission_pips(self, quote_per_usd: float = 1.0) -> float:
+        """Round-turn commission expressed in pips, so it adds to the spread.
+
+        Round turn is two sides, so this is twice the per-side charge.
+        """
+        if self.commission_per_lot_side_usd is None:
+            raise ValueError(f"{self.name}: commission not specified")
+        return 2.0 * self.commission_per_lot_side_usd / self.pip_value_usd(quote_per_usd)
+
 
 SYMBOLS: dict[str, SymbolSpec] = {
     "EURUSD": SymbolSpec(
@@ -59,6 +89,10 @@ SYMBOLS: dict[str, SymbolSpec] = {
         feed_symbol="EURUSD_Raw_Spread",
         digits=5,
         pip=1e-4,
+        spec_avg_spread_pips=0.0,
+        commission_per_lot_side_usd=2.5,
+        contract_size=100_000,
+        quote_ccy="USD",
     ),
     "USDJPY": SymbolSpec(
         name="USDJPY",
@@ -67,6 +101,10 @@ SYMBOLS: dict[str, SymbolSpec] = {
         feed_symbol="USDJPY_Raw_Spread",
         digits=3,
         pip=1e-2,
+        spec_avg_spread_pips=0.0,
+        commission_per_lot_side_usd=2.5,
+        contract_size=100_000,
+        quote_ccy="JPY",
     ),
     "XAUUSD": SymbolSpec(
         name="XAUUSD",
@@ -76,6 +114,9 @@ SYMBOLS: dict[str, SymbolSpec] = {
         digits=3,
         pip=1e-2,
         daily_break_utc=(20, 22),
+        # Metals sit on a separate Exness contract-specification page; commission
+        # and contract size are left unset rather than guessed. Until they are
+        # filled in, XAUUSD cost estimates cover spread only.
     ),
     "USTEC": SymbolSpec(
         name="USTEC",
@@ -85,6 +126,7 @@ SYMBOLS: dict[str, SymbolSpec] = {
         digits=2,
         pip=1.0,
         daily_break_utc=(19, 22),
+        # As above: indices have their own specification page.
     ),
 }
 

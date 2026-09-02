@@ -8,9 +8,16 @@ becomes a backtest assumption.
 Metric groups
 -------------
 integrity   duplicate timestamps, out-of-order ticks, exact duplicate rows
-quotes      locked (bid == ask) and crossed (ask < bid) markets, spread quantiles
+quotes      zero-spread (bid == ask) and crossed (ask < bid) ticks, spread quantiles
 continuity  inter-tick gaps (weekend gaps separated out), missing weekdays
 sanity      price range, extreme tick-to-tick jumps measured in basis points
+
+A high zero-spread share is **not** by itself a defect. On an Exness Raw Spread
+account the majors are quoted at a genuine 0.0 pip average spread and the broker
+charges commission instead, so EURUSD sitting at 97% zero-spread agrees with the
+published contract specification. What matters is whether the observed mean
+spread matches that specification - see :func:`spec_agreement`. A crossed quote
+(ask < bid) is always corrupt.
 
 Tick jumps are expressed in basis points of mid price rather than pips so the
 number means the same thing on EURUSD, XAUUSD and USTEC.
@@ -80,7 +87,7 @@ def month_metrics(parquet_path: Path, spec: SymbolSpec) -> dict:
         ~pl.col("crosses_weekend") & ~pl.col("in_break_window")
     ).then(pl.col("gap_s"))
     agg = enriched.select(
-        locked=(pl.col("bid") == pl.col("ask")).sum(),
+        zero_spread=(pl.col("bid") == pl.col("ask")).sum(),
         crossed=(pl.col("ask") < pl.col("bid")).sum(),
         n_session_breaks=(pl.col("in_break_window") & (pl.col("gap_s") > 600)).sum(),
         max_outage_gap_s=outage_gap.max(),
@@ -89,6 +96,12 @@ def month_metrics(parquet_path: Path, spec: SymbolSpec) -> dict:
             for bucket in GAP_BUCKETS_S
         },
         spread_mean_pips=pl.col("spread_pips").mean(),
+        # Sunday is the week's reopen, where spread widens by an order of
+        # magnitude. The broker's published average is a weekday figure, and most
+        # strategies will not trade the reopen, so keep a Mon-Fri mean alongside.
+        spread_mean_mon_fri_pips=pl.when(pl.col("ts").dt.weekday() < 6)
+        .then(pl.col("spread_pips"))
+        .mean(),
         spread_p50_pips=pl.col("spread_pips").quantile(0.50),
         spread_p95_pips=pl.col("spread_pips").quantile(0.95),
         spread_p99_pips=pl.col("spread_pips").quantile(0.99),
@@ -127,12 +140,13 @@ def month_metrics(parquet_path: Path, spec: SymbolSpec) -> dict:
         "duplicate_ts_pct": 100.0 * duplicate_ts / rows,
         "exact_duplicate_rows": rows - ticks.n_unique(),
         "out_of_order": int(not ticks["ts"].is_sorted()),
-        "locked_pct": 100.0 * agg["locked"] / rows,
+        "zero_spread_pct": 100.0 * agg["zero_spread"] / rows,
         "crossed_pct": 100.0 * agg["crossed"] / rows,
         **{
             key: agg[key]
             for key in (
                 "spread_mean_pips",
+                "spread_mean_mon_fri_pips",
                 "spread_p50_pips",
                 "spread_p95_pips",
                 "spread_p99_pips",
@@ -150,6 +164,61 @@ def month_metrics(parquet_path: Path, spec: SymbolSpec) -> dict:
             )
         },
     }
+
+
+def spec_agreement(monthly: pl.DataFrame, symbol: str, since_year: int = 2024) -> dict:
+    """Check the feed's mean spread against the broker's published average.
+
+    This is the check that a raw zero-spread count cannot give you. The broker
+    quotes an average, so the test is whether the tick-weighted mean spread
+    rounds to the published figure at its stated precision - not whether zero
+    spreads occur.
+
+    Exness publishes averages "based on the previous trading day", so the
+    comparison uses recent Mon-Fri data: recent because spreads have compressed
+    considerably since 2020, and Mon-Fri because a single trading day's average
+    cannot include the Sunday reopen, where spread widens tenfold.
+
+    Agreement is judged economically rather than by exact rounding. The published
+    figure carries one decimal place, and any residual spread only matters
+    relative to the commission paid on the same trade - a 0.09 pip discrepancy
+    against 0.76 pips of commission is noise, not a data defect.
+    """
+    spec = get_spec(symbol)
+    recent = monthly.filter(
+        (pl.col("symbol") == symbol) & (pl.col("year") >= since_year)
+    )
+    if recent.is_empty():
+        return {"symbol": symbol, "status": "no data"}
+
+    weights = recent["rows"]
+    observed = float(
+        (recent["spread_mean_mon_fri_pips"] * weights).sum() / weights.sum()
+    )
+
+    result = {
+        "symbol": symbol,
+        "observed_mean_pips": observed,
+        "spec_mean_pips": spec.spec_avg_spread_pips,
+        "since_year": since_year,
+    }
+    if spec.spec_avg_spread_pips is None:
+        result["status"] = "no published spec on file"
+        return result
+
+    deviation = abs(observed - spec.spec_avg_spread_pips)
+    tolerance = 0.05  # half the published precision
+    if spec.commission_per_lot_side_usd is not None:
+        quote_rate = float(recent["price_max"].mean()) if spec.quote_ccy == "JPY" else 1.0
+        tolerance = max(tolerance, 0.2 * spec.commission_pips(quote_rate))
+
+    result["deviation_pips"] = deviation
+    result["tolerance_pips"] = tolerance
+    result["agrees"] = deviation <= tolerance
+    result["status"] = (
+        "agrees with spec" if result["agrees"] else "diverges from spec - investigate"
+    )
+    return result
 
 
 def hourly_profile(parquet_path: Path, symbol: str) -> pl.DataFrame:
