@@ -10,9 +10,9 @@ raw-spread feeds (EURUSD, USDJPY, XAUUSD, USTEC), 2020-2026.
 | 0 | Infrastructure: storage layout, CSV->Parquet pipeline, data quality report | **done** |
 | 1 | Data layer: cleaning policy, bar construction, point-in-time loaders | **done** |
 | 2 | Cost model: spread, commission, slippage | **done** |
-| 3 | Research: hypothesis, feature/signal prototyping on the dev split | next |
-| 4 | Backtest engine: signal / sizing / execution separation | |
-| 5 | Evaluation: tearsheets, cost drag, parameter sensitivity | |
+| 3 | Research: hypothesis, feature/signal prototyping on the dev split | in progress |
+| 4 | Backtest engine: signal / sizing / execution separation | **done** (tick-level) |
+| 5 | Evaluation: tearsheets, cost drag, parameter sensitivity | **done** |
 | 6 | Validation: held-out test, regime breakdown, stress tests | |
 | 7 | Deployment readiness: paper trading, monitoring, kill switch | |
 
@@ -27,6 +27,7 @@ data/processed/
   manifest.parquet                    inventory of every converted file
 reports/data_quality/          Stage 0 quality report
 reports/cost_model/            Stage 2 cost model report
+reports/strategies/            per-strategy backtest reports
 src/qlab/                      the package
   paths.py                     canonical filesystem layout
   symbols.py                   instrument specs and broker contract terms
@@ -37,6 +38,9 @@ src/qlab/                      the package
   session.py                   session, rollover and reopen flags
   costprofile.py               measuring spread and latency drift
   costs.py                     the cost model every backtest consumes
+  engine.py                    trade accounting, sizing, account rules
+  metrics.py                   tearsheets and cost decomposition
+  strategies/                  one module per strategy
 scripts/                       command-line entry points
 ```
 
@@ -67,6 +71,9 @@ python scripts/build_bars.py -i 1m 5m -s XAUUSD
 python scripts/build_cost_model.py -w 8
 python scripts/cost_report.py
 python scripts/cost_report.py --adverse 1.0 --latency 500   # stress
+
+# Backtest a strategy and write reports/strategies/<NAME>.md
+python scripts/backtest_lvf.py
 ```
 
 Reading data downstream - always through `qlab.loader`, never by globbing

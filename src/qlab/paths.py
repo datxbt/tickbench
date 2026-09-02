@@ -28,6 +28,7 @@ MANIFEST_PATH = PROCESSED_DIR / "manifest.parquet"
 REPORTS_DIR = ROOT / "reports"
 QUALITY_DIR = REPORTS_DIR / "data_quality"
 COST_REPORT_DIR = REPORTS_DIR / "cost_model"
+STRATEGY_REPORT_DIR = REPORTS_DIR / "strategies"
 
 
 def tick_partition_dir(symbol: str) -> Path:
@@ -57,5 +58,6 @@ def ensure_dirs() -> None:
         REPORTS_DIR,
         QUALITY_DIR,
         COST_REPORT_DIR,
+        STRATEGY_REPORT_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)
