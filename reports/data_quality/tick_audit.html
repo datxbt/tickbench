@@ -1,0 +1,866 @@
+<title>Exness Tick Corpus Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  /* ---- Light palette (complete; dark blocks below redefine tokens only) ---- */
+  :root {
+    --bg:        #F4F7F8;
+    --surface:   #FFFFFF;
+    --sunken:    #EAF0F2;
+    --border:    #D8E2E6;
+    --rule:      #C3D2D8;
+    --text:      #14202A;
+    --muted:     #556975;
+    --faint:     #7C8F9A;
+
+    --accent:    #0E7490;
+    --seq:       #0E7490;   /* sequential ramp hue: coverage */
+    --seq-warn:  #C2321E;   /* sequential ramp hue: locked ticks */
+
+    --ok:        #1A7F4E;
+    --warn:      #C08600;
+    --bad:       #C2321E;
+
+    --ok-wash:   #E6F2EC;
+    --warn-wash: #F7EEDA;
+    --bad-wash:  #F8E7E3;
+
+    --shadow: 0 1px 2px rgba(20, 32, 42, .06), 0 8px 24px -12px rgba(20, 32, 42, .18);
+
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --serif: "IBM Plex Serif", ui-serif, Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:        #0E1519;
+      --surface:   #161F25;
+      --sunken:    #111A1F;
+      --border:    #263239;
+      --rule:      #33434C;
+      --text:      #E1E9ED;
+      --muted:     #93A5B0;
+      --faint:     #74868F;
+
+      --accent:    #38A9C4;
+      --seq:       #38A9C4;
+      --seq-warn:  #E85E74;
+
+      --ok:        #2FA971;
+      --warn:      #B08612;
+      --bad:       #E85E74;
+
+      --ok-wash:   #142A22;
+      --warn-wash: #2A2312;
+      --bad-wash:  #2E1A1E;
+
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -14px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg:        #0E1519;
+    --surface:   #161F25;
+    --sunken:    #111A1F;
+    --border:    #263239;
+    --rule:      #33434C;
+    --text:      #E1E9ED;
+    --muted:     #93A5B0;
+    --faint:     #74868F;
+
+    --accent:    #38A9C4;
+    --seq:       #38A9C4;
+    --seq-warn:  #E85E74;
+
+    --ok:        #2FA971;
+    --warn:      #B08612;
+    --bad:       #E85E74;
+
+    --ok-wash:   #142A22;
+    --warn-wash: #2A2312;
+    --bad-wash:  #2E1A1E;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -14px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
+
+  /* ---------------- Masthead ---------------- */
+  .masthead {
+    padding: 72px 0 34px;
+    border-bottom: 2px solid var(--text);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: clamp(2.3rem, 5.4vw, 3.5rem);
+    line-height: 1.02;
+    letter-spacing: -.028em;
+    text-wrap: balance;
+    margin: 0 0 20px;
+  }
+  .standfirst {
+    font-size: 1.14rem;
+    line-height: 1.62;
+    color: var(--muted);
+    max-width: 63ch;
+    margin: 0;
+  }
+  .standfirst strong { color: var(--text); font-weight: 500; }
+
+  .provenance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 40px;
+    margin-top: 34px;
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+  }
+  .prov-item { display: flex; flex-direction: column; gap: 3px; }
+  .prov-item dt {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .prov-item dd {
+    margin: 0;
+    font-family: var(--sans);
+    font-size: 1.16rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+  }
+
+  /* ---------------- Sections ---------------- */
+  section { margin-top: 68px; }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: .06em;
+  }
+  h2 {
+    font-family: var(--sans);
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -.018em;
+    margin: 0;
+  }
+  .sec-note {
+    color: var(--muted);
+    font-size: .97rem;
+    max-width: 68ch;
+    margin: 16px 0 26px;
+  }
+  .sec-note code {
+    font-family: var(--mono);
+    font-size: .87em;
+    background: var(--sunken);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: .08em .34em;
+  }
+
+  /* ---------------- Verdict cards ---------------- */
+  .verdicts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+    gap: 16px;
+  }
+  .vcard {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 20px 18px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .vcard-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .vsym {
+    font-family: var(--sans);
+    font-size: 1.16rem;
+    font-weight: 700;
+    letter-spacing: -.01em;
+  }
+  .vclass {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    width: fit-content;
+  }
+  .pill::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .pill.ok   { color: var(--ok);   background: var(--ok-wash); }
+  .pill.warn { color: var(--warn); background: var(--warn-wash); }
+  .pill.bad  { color: var(--bad);  background: var(--bad-wash); }
+
+  .vbody { font-size: .93rem; line-height: 1.55; color: var(--muted); margin: 0; }
+  .vbody strong { color: var(--text); font-weight: 500; }
+
+  /* ---------------- Bar chart ---------------- */
+  figure { margin: 0 0 30px; }
+  figcaption {
+    font-family: var(--sans);
+    font-size: .95rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .fig-sub {
+    font-size: .88rem;
+    color: var(--muted);
+    margin: 0 0 18px;
+  }
+  .bars { display: flex; flex-direction: column; gap: 10px; }
+  .bar-row {
+    display: grid;
+    grid-template-columns: 86px 1fr 62px;
+    align-items: center;
+    gap: 14px;
+  }
+  .bar-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .bar-track {
+    position: relative;
+    height: 22px;
+    background: var(--sunken);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    transition: width .5s cubic-bezier(.22,.7,.3,1);
+  }
+  .bar-fill.ok   { background: var(--ok); }
+  .bar-fill.warn { background: var(--warn); }
+  .bar-fill.bad  { background: var(--bad); }
+  .bar-val {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* ---------------- Tables ---------------- */
+  .scroll { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-family: var(--sans); font-size: 13.5px; }
+  caption { text-align: left; padding: 0 0 10px; font-size: .88rem; color: var(--muted); }
+  th, td {
+    padding: 9px 14px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--faint);
+    background: var(--sunken);
+    position: sticky; top: 0;
+  }
+  th:first-child, td:first-child { text-align: left; }
+  td { font-variant-numeric: tabular-nums; }
+  td.sym { font-family: var(--mono); font-weight: 600; font-size: 12.5px; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--sunken); }
+  td.flag-bad  { color: var(--bad);  font-weight: 600; }
+  td.flag-warn { color: var(--warn); font-weight: 600; }
+  td.flag-ok   { color: var(--ok);   font-weight: 600; }
+
+  /* ---------------- Heatmaps ---------------- */
+  .heat { display: grid; gap: 3px; font-family: var(--mono); }
+  .heat-row { display: grid; grid-template-columns: 86px 1fr; align-items: center; gap: 12px; }
+  .heat-cells { display: grid; gap: 3px; }
+  .cell {
+    height: 34px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid transparent;
+    cursor: default;
+  }
+  .cell:hover { border-color: var(--text); }
+  .heat-axis { display: grid; grid-template-columns: 86px 1fr; gap: 12px; margin-top: 6px; }
+  .heat-ticks { display: grid; }
+  .heat-ticks span {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--faint);
+    text-align: center;
+  }
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--faint);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .legend-ramp {
+    display: flex;
+    height: 10px;
+    width: 132px;
+    border-radius: 2px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .legend-ramp i { flex: 1; }
+
+  /* ---------------- Callout ---------------- */
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--bad);
+    border-radius: 8px;
+    padding: 22px 24px;
+    margin: 26px 0 0;
+    box-shadow: var(--shadow);
+  }
+  .callout h3 {
+    font-family: var(--sans);
+    font-size: 1.06rem;
+    font-weight: 600;
+    margin: 0 0 10px;
+    letter-spacing: -.012em;
+  }
+  .callout p { margin: 0 0 10px; font-size: .96rem; color: var(--muted); }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { color: var(--text); font-weight: 500; }
+
+  /* ---------------- Next steps ---------------- */
+  .steps { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+  .step {
+    display: grid;
+    grid-template-columns: 74px 1fr;
+    gap: 20px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .step:last-child { border-bottom: none; }
+  .step-tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-top: 3px;
+  }
+  .step h3 {
+    font-family: var(--sans);
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 5px;
+  }
+  .step p { margin: 0; font-size: .94rem; color: var(--muted); }
+
+  footer {
+    margin-top: 76px;
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .05em;
+    color: var(--faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+  }
+
+  @media (max-width: 660px) {
+    .wrap { padding: 0 18px 64px; }
+    .masthead { padding-top: 48px; }
+    .bar-row { grid-template-columns: 72px 1fr 54px; gap: 10px; }
+    .heat-row, .heat-axis { grid-template-columns: 68px 1fr; gap: 8px; }
+    .cell { height: 24px; font-size: 0; }
+    .step { grid-template-columns: 1fr; gap: 6px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Stage 0 · Data Quality Audit</p>
+    <h1>Exness Tick Corpus Audit</h1>
+    <p class="standfirst">
+      660 million bid/ask ticks across four instruments, 2020&ndash;2026, measured before
+      any strategy work begins. Nothing here has been cleaned or repaired &mdash; the point
+      is to find out what the feed actually contains.
+      <strong>Two of the four symbols turn out to have an unusable ask side.</strong>
+    </p>
+    <dl class="provenance">
+      <div class="prov-item"><dt>Ticks</dt><dd>695,922,945</dd></div>
+      <div class="prov-item"><dt>Symbol-months</dt><dd>321</dd></div>
+      <div class="prov-item"><dt>Coverage</dt><dd>2020-01-29 &rarr; 2026-09-01</dd></div>
+      <div class="prov-item"><dt>Source</dt><dd>48 GB CSV</dd></div>
+      <div class="prov-item"><dt>Stored</dt><dd>4.6 GB Parquet</dd></div>
+    </dl>
+  </header>
+
+  <!-- ======================= 1. VERDICT ======================= -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>Verdict</h2></div>
+    <p class="sec-note">
+      The question Stage 0 exists to answer: which instruments can carry a
+      cost-realistic backtest, and over which years.
+    </p>
+
+    <div class="verdicts">
+      <article class="vcard">
+        <div class="vcard-top"><span class="vsym">XAUUSD</span><span class="vclass">Metal</span></div>
+        <span class="pill ok">Clean</span>
+        <p class="vbody">
+          Zero locked ticks in six years. Spread is a genuine quote and compresses across
+          broker eras &mdash; <strong>11.3 &rarr; 3.7 pips</strong> median from 2020 to 2025.
+          Fully supports data-driven cost modelling.
+        </p>
+      </article>
+
+      <article class="vcard">
+        <div class="vcard-top"><span class="vsym">USTEC</span><span class="vclass">Index</span></div>
+        <span class="pill warn">Clean outside 2024&ndash;25</span>
+        <p class="vbody">
+          Locked ticks are 0% in 2021&ndash;23 and 2026, but reach <strong>8% in 2024</strong>
+          and <strong>39% in 2025</strong>. Usable, with those two years excluded from any
+          spread estimate.
+        </p>
+      </article>
+
+      <article class="vcard">
+        <div class="vcard-top"><span class="vsym">USDJPY</span><span class="vclass">FX</span></div>
+        <span class="pill bad">Ask side unusable</span>
+        <p class="vbody">
+          <strong>92.7%</strong> of ticks quote bid = ask. The median spread is exactly zero
+          in every year from 2020 to 2026. No real spread can be recovered from this feed.
+        </p>
+      </article>
+
+      <article class="vcard">
+        <div class="vcard-top"><span class="vsym">EURUSD</span><span class="vclass">FX</span></div>
+        <span class="pill bad">Ask side unusable</span>
+        <p class="vbody">
+          <strong>97.6%</strong> of ticks quote bid = ask, the worst of the four. Non-zero
+          spreads cluster on Sunday reopens, so the ask is only real when the spread is
+          unusually wide.
+        </p>
+      </article>
+    </div>
+
+    <div class="callout">
+      <h3>Why the locked-tick finding matters more than it looks</h3>
+      <p>
+        A raw-spread account never has a zero spread 96% of the time. The zeros are not
+        tight markets &mdash; they are an ask column that mostly just mirrors the bid.
+      </p>
+      <p>
+        Left undetected, this is the kind of defect that silently produces a beautiful
+        backtest: an FX strategy costed off this data would trade for free, and the
+        equity curve would look excellent right up until it met a real broker.
+        <strong>FX cost modelling needs an external spread source</strong> &mdash; a broker
+        spec sheet or a second feed. The bid series remains usable as a price series.
+      </p>
+    </div>
+  </section>
+
+  <!-- ======================= 2. QUOTE INTEGRITY ======================= -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Quote integrity</h2></div>
+    <p class="sec-note">
+      A tick is <em>locked</em> when <code>bid == ask</code> and <em>crossed</em> when
+      <code>ask &lt; bid</code>. Crossed quotes are always corrupt; none were found
+      anywhere in the corpus. Locked quotes are the story.
+    </p>
+
+    <figure>
+      <figcaption>Share of ticks quoting a zero spread</figcaption>
+      <p class="fig-sub">Weighted by tick count across all 321 symbol-months.</p>
+      <div class="bars">
+        <div class="bar-row">
+          <span class="bar-label">EURUSD</span>
+          <div class="bar-track"><div class="bar-fill bad" style="width:97.58%"></div></div>
+          <span class="bar-val">97.6%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">USDJPY</span>
+          <div class="bar-track"><div class="bar-fill bad" style="width:92.66%"></div></div>
+          <span class="bar-val">92.7%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">USTEC</span>
+          <div class="bar-track"><div class="bar-fill warn" style="width:15.17%"></div></div>
+          <span class="bar-val">15.2%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">XAUUSD</span>
+          <div class="bar-track"><div class="bar-fill ok" style="width:0.4%"></div></div>
+          <span class="bar-val">0.0%</span>
+        </div>
+      </div>
+    </figure>
+
+    <figure>
+      <figcaption>Locked ticks by year</figcaption>
+      <p class="fig-sub">
+        FX is broken in every year, so this is not a fixable date-range problem. USTEC's
+        damage is confined to 2024&ndash;25.
+      </p>
+      <div id="heat-locked"></div>
+      <div class="legend">
+        <span>0%</span>
+        <span class="legend-ramp" id="ramp-locked"></span>
+        <span>100% locked</span>
+      </div>
+    </figure>
+
+    <div class="scroll">
+      <table>
+        <caption class="sr-only"></caption>
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Locked %</th><th>Crossed %</th><th>Dup ts %</th>
+            <th>Spread p50</th><th>Spread p95</th><th>Spread max</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="sym">EURUSD</td><td class="flag-bad">97.58</td><td>0.0000</td><td>0.255</td><td class="flag-bad">0.00</td><td>0.00</td><td>45.0</td></tr>
+          <tr><td class="sym">USDJPY</td><td class="flag-bad">92.66</td><td>0.0000</td><td>0.443</td><td class="flag-bad">0.00</td><td>0.05</td><td>35.0</td></tr>
+          <tr><td class="sym">USTEC</td><td class="flag-warn">15.17</td><td>0.0000</td><td>2.493</td><td>0.59</td><td>1.09</td><td>28.6</td></tr>
+          <tr><td class="sym">XAUUSD</td><td class="flag-ok">0.00</td><td>0.0000</td><td>0.529</td><td>6.30</td><td>6.30</td><td>396.3</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sec-note" style="margin-top:14px">
+      Spreads are in pips (EURUSD 0.0001, USDJPY and XAUUSD 0.01, USTEC 1 index point).
+      Duplicate timestamps are benign: every one is an exact duplicate row, so
+      deduplication in Stage 1 will be lossless.
+    </p>
+  </section>
+
+  <!-- ======================= 3. CONTINUITY ======================= -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Continuity</h2></div>
+    <p class="sec-note">
+      Naively counting gaps makes XAUUSD and USTEC look badly broken &mdash; about 1,350
+      hour-plus gaps each. Almost all of them are the daily maintenance break: 1,310 of
+      XAUUSD's start between 20:00 and 21:00 UTC with a 1.05 h median, roughly one per
+      trading day. Separating routine downtime from real outages cuts the genuine figure
+      by 95%.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Missing weekdays</th><th>Daily breaks</th>
+            <th>Outages &gt;1 min</th><th>&gt;5 min</th><th>&gt;1 h</th><th>Longest outage</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="sym">EURUSD</td><td>2</td><td>&mdash;</td><td>57,634</td><td>766</td><td>16</td><td>34.6 h</td></tr>
+          <tr><td class="sym">USDJPY</td><td>2</td><td>&mdash;</td><td>45,030</td><td>643</td><td>12</td><td>34.6 h</td></tr>
+          <tr><td class="sym">USTEC</td><td>8</td><td>1,677</td><td>1,002</td><td>150</td><td>65</td><td>34.6 h</td></tr>
+          <tr><td class="sym">XAUUSD</td><td>12</td><td>1,617</td><td>542</td><td>81</td><td>51</td><td>34.6 h</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sec-note" style="margin-top:14px">
+      Weekend gaps are excluded throughout. FX has no daily break, so its hour-plus gaps
+      are all real downtime &mdash; 16 and 12 events over six and a half years.
+    </p>
+  </section>
+
+  <!-- ======================= 4. SESSION COVERAGE ======================= -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Session coverage</h2></div>
+    <p class="sec-note">
+      Share of each symbol's ticks by UTC hour. This is the empirical basis for the
+      session definitions Stage 2 will need &mdash; spread and volatility both regime-shift
+      across these boundaries.
+    </p>
+
+    <figure>
+      <div id="heat-hours"></div>
+      <div class="legend">
+        <span>Low</span>
+        <span class="legend-ramp" id="ramp-hours"></span>
+        <span>High share of ticks</span>
+      </div>
+    </figure>
+
+    <p class="sec-note">
+      All four peak at 13:00&ndash;15:00 UTC, the London&ndash;New York overlap. USTEC is the
+      most concentrated &mdash; <strong>31%</strong> of its ticks land in those three hours,
+      against 25% for EURUSD &mdash; and collapses to 0.5% at 21:00 during its index break.
+    </p>
+  </section>
+
+  <!-- ======================= 5. INVENTORY ======================= -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Corpus inventory</h2></div>
+    <p class="sec-note">
+      What was converted, and the price sanity checks. A <em>jump</em> is a tick-to-tick
+      mid move greater than 10 basis points &mdash; measured in bps rather than pips so the
+      threshold means the same thing on EURUSD and USTEC.
+    </p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Class</th><th>Months</th><th>Ticks</th>
+            <th>Median/day</th><th>Price range</th><th>Jumps</th><th>Largest jump</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="sym">EURUSD</td><td style="text-align:left">FX</td><td>80</td><td>86,878,906</td><td>41,722</td><td>0.954 &ndash; 1.235</td><td>139</td><td>116.7 bps</td></tr>
+          <tr><td class="sym">USDJPY</td><td style="text-align:left">FX</td><td>80</td><td>109,419,415</td><td>50,541</td><td>101.19 &ndash; 163.99</td><td>293</td><td>126.3 bps</td></tr>
+          <tr><td class="sym">USTEC</td><td style="text-align:left">Index</td><td>81</td><td>216,564,864</td><td>57,182</td><td>6,630 &ndash; 30,795</td><td>2,956</td><td>597.0 bps</td></tr>
+          <tr><td class="sym">XAUUSD</td><td style="text-align:left">Metal</td><td>80</td><td>283,059,760</td><td>103,512</td><td>1,451 &ndash; 5,595</td><td>2,433</td><td>242.4 bps</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sec-note" style="margin-top:14px">
+      Jump counts are candidates for review, not confirmed bad prints &mdash; USTEC's 597 bps
+      maximum falls in March 2020, when the index genuinely moved that fast. Classifying
+      them is a Stage 1 job.
+    </p>
+  </section>
+
+  <!-- ======================= 6. WHAT THIS CHANGES ======================= -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>What this changes downstream</h2></div>
+    <p class="sec-note">
+      Stage 0 was meant to be plumbing. The locked-tick finding makes it a scoping
+      decision instead.
+    </p>
+
+    <div class="steps">
+      <div class="step">
+        <span class="step-tag">Stage 1</span>
+        <div>
+          <h3>Deduplication is safe; spread repair is not</h3>
+          <p>
+            Duplicate timestamps are exact duplicate rows, so dropping them loses nothing.
+            Do not, however, forward-fill or interpolate the FX ask &mdash; inventing a spread
+            is worse than having none, because it hides the problem behind plausible numbers.
+          </p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-tag">Stage 2</span>
+        <div>
+          <h3>Two cost models, not one</h3>
+          <p>
+            XAUUSD and USTEC get an empirical spread model estimated per session and per
+            broker era. EURUSD and USDJPY need an external spread assumption, documented
+            as an assumption, with backtests run across a range of it rather than a
+            single point estimate.
+          </p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-tag">Stage 3</span>
+        <div>
+          <h3>Lead with XAUUSD</h3>
+          <p>
+            It is the cleanest instrument, the densest (103k ticks a day, 283M in total)
+            and the only one with a trustworthy spread across the whole period. Prove the
+            research loop there before taking on an instrument whose costs are guesswork.
+          </p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-tag">Open</span>
+        <div>
+          <h3>Worth confirming with the vendor</h3>
+          <p>
+            The FX ask behaviour is consistent enough across six years to look like a
+            feed-construction artefact rather than corruption. If a corrected FX export
+            exists, it would restore two instruments at once.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Stage 0 · Data quality audit</span>
+    <span>321 symbol-months · 695,922,945 ticks</span>
+    <span>Generated 2 September 2026</span>
+  </footer>
+</div>
+
+<script>
+  // Tables above carry every number; these heatmaps are an additional reading of
+  // the same data, so a script failure costs nothing that matters.
+  const SYMBOLS = ["EURUSD", "USDJPY", "USTEC", "XAUUSD"];
+
+  const LOCKED_BY_YEAR = {
+    EURUSD: [96.7, 97.7, 98.0, 97.4, 96.6, 98.0, 98.6],
+    USDJPY: [73.1, 88.6, 94.6, 95.4, 94.1, 96.1, 95.4],
+    USTEC:  [ 3.1,  0.0,  0.0,  0.0,  8.4, 39.1,  0.4],
+    XAUUSD: [ 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0]
+  };
+  const YEARS = [2020, 2021, 2022, 2023, 2024, 2025, 2026];
+
+  const HOURLY = {
+    EURUSD: [2.79,3.16,2.42,1.96,1.72,2.19,4.04,5.99,6.14,5.12,4.52,4.72,7.06,8.72,9.28,7.72,5.24,4.03,4.08,3.5,2.06,1.02,1.13,1.4],
+    USDJPY: [5.53,4.87,3.63,3.15,2.86,3.24,4.36,5.55,5.44,4.32,3.7,3.79,6.16,7.79,8.14,6.49,4.32,3.53,3.48,2.98,1.79,1.02,1.44,2.45],
+    USTEC:  [2.87,2.94,2.29,1.86,1.63,2.05,2.34,3.02,3.36,2.82,2.62,2.88,3.63,9.28,12.11,9.87,7.36,6.6,6.35,7.0,3.41,0.49,1.16,1.83],
+    XAUUSD: [3.48,5.36,3.99,3.13,2.53,3.48,4.19,4.24,4.24,3.79,3.53,3.9,5.79,8.51,8.7,7.03,5.21,4.38,4.12,3.79,2.63,0.72,1.44,2.32]
+  };
+
+  // Single-hue sequential ramp: light -> dark, mixed against the surface token so
+  // it re-resolves correctly in both themes.
+  function ramp(value, max, hueVar) {
+    const t = Math.max(0, Math.min(1, value / max));
+    const pct = (8 + t * 92).toFixed(1);
+    return `color-mix(in oklab, var(${hueVar}) ${pct}%, var(--surface))`;
+  }
+
+  function buildHeat(mountId, columns, data, max, hueVar, fmt) {
+    const mount = document.getElementById(mountId);
+    if (!mount) return;
+    const heat = document.createElement("div");
+    heat.className = "heat";
+
+    SYMBOLS.forEach(sym => {
+      const row = document.createElement("div");
+      row.className = "heat-row";
+
+      const label = document.createElement("span");
+      label.className = "bar-label";
+      label.textContent = sym;
+      row.appendChild(label);
+
+      const cells = document.createElement("div");
+      cells.className = "heat-cells";
+      cells.style.gridTemplateColumns = `repeat(${columns.length}, 1fr)`;
+
+      data[sym].forEach((value, i) => {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.style.background = ramp(value, max, hueVar);
+        // Ink stays on text tokens; only the fill carries magnitude.
+        cell.style.color = value / max > 0.55 ? "var(--surface)" : "var(--muted)";
+        cell.textContent = fmt(value);
+        cell.title = `${sym} · ${columns[i]} · ${fmt(value)}${mountId === "heat-hours" ? "% of ticks" : "% locked"}`;
+        cells.appendChild(cell);
+      });
+
+      row.appendChild(cells);
+      heat.appendChild(row);
+    });
+
+    mount.appendChild(heat);
+
+    const axis = document.createElement("div");
+    axis.className = "heat-axis";
+    axis.appendChild(document.createElement("span"));
+    const ticks = document.createElement("div");
+    ticks.className = "heat-ticks";
+    ticks.style.gridTemplateColumns = `repeat(${columns.length}, 1fr)`;
+    columns.forEach(c => {
+      const s = document.createElement("span");
+      s.textContent = c;
+      ticks.appendChild(s);
+    });
+    axis.appendChild(ticks);
+    mount.appendChild(axis);
+  }
+
+  function buildRamp(id, hueVar, max) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    for (let i = 0; i < 10; i++) {
+      const swatch = document.createElement("i");
+      swatch.style.background = ramp((i + 0.5) / 10 * max, max, hueVar);
+      el.appendChild(swatch);
+    }
+  }
+
+  buildHeat("heat-locked", YEARS, LOCKED_BY_YEAR, 100, "--seq-warn", v => v.toFixed(0));
+  buildHeat("heat-hours", [...Array(24).keys()].map(h => String(h).padStart(2, "0")),
+            HOURLY, 12.11, "--seq", v => v.toFixed(0));
+  buildRamp("ramp-locked", "--seq-warn", 100);
+  buildRamp("ramp-hours", "--seq", 12.11);
+</script>
