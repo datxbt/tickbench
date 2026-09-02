@@ -8,8 +8,8 @@ raw-spread feeds (EURUSD, USDJPY, XAUUSD, USTEC), 2020-2026.
 | Stage | Purpose | Status |
 | --- | --- | --- |
 | 0 | Infrastructure: storage layout, CSV->Parquet pipeline, data quality report | **done** |
-| 1 | Data layer: cleaning policy, bar construction, point-in-time loaders | next |
-| 2 | Cost model: spread, commission, slippage | |
+| 1 | Data layer: cleaning policy, bar construction, point-in-time loaders | **done** |
+| 2 | Cost model: spread, commission, slippage | next |
 | 3 | Research: hypothesis, feature/signal prototyping on the dev split | |
 | 4 | Backtest engine: signal / sizing / execution separation | |
 | 5 | Evaluation: tearsheets, cost drag, parameter sensitivity | |
@@ -21,14 +21,18 @@ raw-spread feeds (EURUSD, USDJPY, XAUUSD, USTEC), 2020-2026.
 ```
 Tick_Data/                     raw vendor CSVs (~48 GB, gitignored, read-only)
 data/processed/
-  ticks/symbol=<SYM>/          converted parquet, one file per month
-  manifest.parquet             inventory of every converted file
+  ticks/symbol=<SYM>/                 converted parquet, one file per month
+  bars/symbol=<SYM>/interval=<IVL>/   built bars, one file per month
+  manifest.parquet                    inventory of every converted file
 reports/data_quality/          Stage 0 quality report
 src/qlab/                      the package
   paths.py                     canonical filesystem layout
   symbols.py                   instrument specs and broker contract terms
   convert.py                   CSV -> Parquet conversion
   quality.py                   data quality metrics
+  loader.py                    cleaning policy, splits, point-in-time loading
+  bars.py                      bar construction and resampling
+  session.py                   session, rollover and reopen flags
 scripts/                       command-line entry points
 ```
 
@@ -50,22 +54,38 @@ python scripts/convert_ticks.py -w 8             # worker processes
 
 # Assess data quality and regenerate reports/data_quality/DATA_QUALITY.md
 python scripts/quality_report.py -w 8
+
+# Build bars from the converted ticks (resumable; ~20 s for all four symbols)
+python scripts/build_bars.py -w 8               # 1m bars, all symbols
+python scripts/build_bars.py -i 1m 5m -s XAUUSD
 ```
 
-Reading ticks downstream:
+Reading data downstream - always through `qlab.loader`, never by globbing
+parquet directly, so that the cleaning policy and the split guard apply:
 
 ```python
-import polars as pl
-from qlab import paths
+from datetime import timedelta
+from qlab.loader import load_bars, load_ticks
+from qlab.bars import resample_bars
+from qlab.session import with_session_flags
+from qlab.symbols import get_spec
 
-# one month
-df = pl.read_parquet(paths.tick_parquet_path("XAUUSD", 2024, 6))
+# Bars are small enough to load eagerly
+bars = load_bars("XAUUSD", "1m", split="dev")
 
-# a whole symbol, lazily
-lf = pl.scan_parquet(paths.tick_partition_dir("XAUUSD") / "*.parquet")
+# Indicators warm on history before the split, and that history is flagged
+bars = load_bars("XAUUSD", "1m", split="validation", warmup=timedelta(days=5))
+evaluable = bars.filter(~bars["is_warmup"])
 
-# every symbol, with the partition key recovered as a column
-lf = pl.scan_parquet(paths.TICKS_DIR / "**/*.parquet", hive_partitioning=True)
+# Coarser bars come from the 1m bars, not from re-reading ticks
+hourly = resample_bars(bars, "1h")
+
+# Ticks are big: prefer lazy, and let the date filter prune whole months
+ticks = load_ticks("EURUSD", start="2024-06-03", end="2024-06-07")
+lazy = load_ticks("XAUUSD", lazy=True)
+
+# Flag the expensive windows rather than dropping them
+flagged = with_session_flags(bars, get_spec("XAUUSD"))
 ```
 
 ## Storage format
@@ -85,6 +105,23 @@ not stored - they are one cheap expression away and would inflate every file.
 zstd level 3 compresses the corpus roughly 10x: **48 GB CSV -> 4.6 GB parquet**,
 696M ticks, full rebuild in about a minute on 8 workers.
 
+Bars add another 391 MB for 9.4M one-minute bars across the four symbols, built
+in about 20 seconds:
+
+| column | notes |
+| --- | --- |
+| `ts` | **the instant the bar's contents became known** - the interval *end* |
+| `ts_open` | interval start |
+| `first_tick_ts`, `last_tick_ts` | observed extent, so a 2-tick bar is visible as one |
+| `open`, `high`, `low`, `close` | on the mid |
+| `mid_mean` | tick-weighted mean mid |
+| `bid_close`, `ask_close` | you enter at the ask and exit at the bid |
+| `spread_mean`, `spread_close` | price units; divide by `spec.pip` for pips |
+| `n_ticks` | quote updates in the interval |
+
+There is no volume: the feed quotes bid and ask with no size, so volume and
+dollar bars are not constructible. `bars.tick_bars()` is the substitute.
+
 ## Design rules
 
 **Conversion is lossless.** `convert.py` verifies structural invariants (constant
@@ -100,6 +137,94 @@ can be added and re-run in minutes without touching the 48 GB source.
 **Writes are atomic.** Parquet is written to a temp file and renamed, so an
 interrupted run can never leave a truncated file that the resume logic would
 mistake for finished work.
+
+## The data layer
+
+Stage 0 stored the vendor feed without judging it. Everything below is a
+judgement, which is why each one is a named object you can inspect, override and
+test rather than a line of code inside a loader.
+
+### Point-in-time convention
+
+**`ts` is the instant a row's contents became known.** A one-minute bar covering
+`[10:00, 10:01)` is labelled `10:01`.
+
+Right-edge labelling is chosen over the commoner left-edge convention because it
+makes the naive thing safe: joining on `ts`, or acting on row *i* at row *i*'s
+timestamp, uses only information that existed at that moment. Under left-edge
+labels the identical code trades on a candle that has not closed yet - the most
+common lookahead bug there is, and one that flatters a backtest rather than
+breaking it. `ts_open` carries the left edge for anyone who needs it.
+
+Two consequences worth knowing:
+
+- **Empty intervals are missing rows, not flat bars.** Weekends, the daily
+  maintenance break and outages simply have no bar. A flat bar is a price
+  assertion, and there is no evidence for it; code that needs a regular grid
+  should reindex explicitly so the filling is its own visible decision.
+- **Session flags key off `ts_open`.** A bar covering `[20:59, 21:00)` is
+  labelled `21:00`, so flagging it from the label would file it under the
+  rollover hour when none of its ticks were in it.
+
+### Duplicate timestamps
+
+Every timestamp in the corpus is a whole millisecond - there is no sub-millisecond
+precision anywhere in 696M ticks. When the market moves fast enough for two quote
+updates to land inside one millisecond, the feed stamps them identically. They
+are sequential real quotes, not repeats:
+
+| | share of ticks that repeat the previous tick | share sharing a millisecond with a *different* quote |
+| --- | ---: | ---: |
+| EURUSD | 0.07% | 0.19% |
+| USDJPY | 0.06% | 0.38% |
+| XAUUSD | 0.10% | 0.43% |
+| USTEC | 0.11% | 2.38% |
+
+And it concentrates in fast markets: USTEC hit 9.0% in 2025-10 and gold 9.7% in
+the March 2020 crash, against ~0.00% in quiet months. So collapsing to a unique
+timestamp is a **volatility-correlated deletion** - it shaves highs and lows off
+precisely the fastest bars. Measured on the worst months it changes 6% of bars,
+moves mean bar range by about -0.15%, and takes up to 36 pips off a single gold
+bar.
+
+The default therefore keeps them and drops only true repeats. `UNIQUE_TS_POLICY`
+is available for consumers that genuinely need a unique index, such as an as-of
+join, and it states in its name what it is buying.
+
+### Cleaning policy
+
+`CleaningPolicy` is the whole of it, and `cleaning_report()` counts what any
+policy would remove before you commit to it. Defaults: drop repeated rows
+(lossless), keep distinct quotes at a shared millisecond, drop crossed
+(`ask < bid`) and non-positive quotes. The corpus contains **zero** crossed
+quotes, so those two rules are guards against a future feed rather than fixes
+for this one.
+
+Nothing about spread is cleaned. The Sunday reopen and the 21:00 rollover are
+real prices at which real orders fill, and on the majors they hold most of the
+non-zero spread in the sample - a strategy has to be able to see them to decide
+to sit them out. `qlab.session` flags them instead.
+
+### Splits
+
+Fixed 2026-09-02, before any hypothesis existed, because a split chosen after
+seeing results is not a split:
+
+| split | range | purpose |
+| --- | --- | --- |
+| dev | 2020-01-29 to 2023-12-31 | hypothesis generation, features, parameter search |
+| validation | 2024-01-01 to 2025-06-30 | model selection among survivors of dev |
+| test | 2025-07-01 to 2026-09-01 | **locked** - one final estimate, run once |
+
+Loading `test` raises `SplitLockedError` unless you pass `allow_test=True`. That
+is not security, it is friction: it makes touching the held-out set a deliberate
+act that shows up in a diff.
+
+`warmup=` loads history *before* a split so indicators are warm at its first
+bar, and flags those rows `is_warmup` so they can never be evaluated. Without it
+the first N bars of every split are silently wrong; with it but no flag, the
+leakage just moves somewhere harder to see.
+
 
 ## Data quality findings
 
@@ -133,9 +258,13 @@ specification.**
   each show ~1,600 routine session breaks; once those and weekends are excluded,
   genuine hour-plus outages fall to 51 and 65 over six years. FX has no daily
   break, so its 16 and 12 hour-plus gaps are all real downtime.
-- **Duplicate timestamps are benign.** 0.25-2.5% of ticks share a timestamp with
-  the previous one, but they are exact duplicate rows, so deduplication in
-  Stage 1 will be lossless.
+- **Duplicate timestamps are mostly *not* duplicate rows.** ~~The audit read
+  0.25-2.5% of shared timestamps as exact duplicate rows, and concluded that
+  deduplication would be lossless.~~ Corrected in Stage 1: the feed stamps to
+  the millisecond and nothing finer, so a fast market puts several genuine
+  quotes on one timestamp. Only 0.09% of the corpus is a true repeat of the
+  preceding tick; 1.0% shares a millisecond with a *different* quote. See
+  "Duplicate timestamps" below.
 - **The spec check must use a trailing window.** Exness publishes a
   previous-trading-day average, so comparing it against a multi-year mean
   produces false alarms on anything whose spread has moved. Gold averages 8.74

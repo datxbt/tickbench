@@ -240,3 +240,57 @@ def write_manifest(records: list[dict]) -> Path:
     fresh = fresh.sort(["symbol", "year", "month"])
     fresh.write_parquet(paths.MANIFEST_PATH)
     return paths.MANIFEST_PATH
+
+
+def reconcile_manifest() -> tuple[Path, int]:
+    """Add manifest rows for parquet files that exist on disk but are unlisted.
+
+    The manifest is written from conversion *records*, so a run that converted
+    files and then died before :func:`write_manifest` leaves those files
+    permanently unlisted: the next run sees them as up to date, converts
+    nothing, and has no record to write. That is how EURUSD came to be missing
+    from an otherwise complete inventory.
+
+    Recovering the record from the parquet itself is cheap and makes the
+    manifest a description of what is on disk rather than of what this process
+    happened to do. Returns the manifest path and the number of rows added.
+    """
+    from .symbols import ALL_SYMBOLS
+
+    known: set[tuple[str, int, int]] = set()
+    if paths.MANIFEST_PATH.exists():
+        previous = pl.read_parquet(paths.MANIFEST_PATH)
+        known = set(
+            zip(previous["symbol"], previous["year"].cast(pl.Int32), previous["month"])
+        )
+
+    recovered: list[dict] = []
+    for symbol in ALL_SYMBOLS:
+        spec = get_spec(symbol)
+        raw_dir = paths.RAW_TICK_DIR / spec.raw_dirname
+        for path in sorted(paths.tick_partition_dir(spec.name).glob("*.parquet")):
+            year, month = int(path.stem[-7:-3]), int(path.stem[-2:])
+            if (spec.name, year, month) in known:
+                continue
+            ticks = pl.read_parquet(path, columns=["ts"])
+            csv_matches = sorted(raw_dir.glob(f"*_{year:04d}_{month:02d}.csv"))
+            recovered.append(
+                {
+                    "symbol": spec.name,
+                    "year": year,
+                    "month": month,
+                    "rows": ticks.height,
+                    "ts_min": ticks["ts"][0],
+                    "ts_max": ticks["ts"][-1],
+                    "duplicate_ts": ticks.height - ticks["ts"].n_unique(),
+                    "source_sorted": bool(ticks["ts"].is_sorted()),
+                    "src_bytes": csv_matches[0].stat().st_size if csv_matches else 0,
+                    "out_bytes": path.stat().st_size,
+                    "elapsed_s": 0.0,
+                    "source_file": csv_matches[0].name if csv_matches else path.name,
+                }
+            )
+
+    if recovered:
+        write_manifest([dict(r, status="ok") for r in recovered])
+    return paths.MANIFEST_PATH, len(recovered)

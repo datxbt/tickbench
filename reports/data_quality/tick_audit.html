@@ -692,8 +692,12 @@
     </div>
     <p class="sec-note" style="margin-top:14px">
       Spreads are in pips (EURUSD 0.0001, USDJPY and XAUUSD 0.01, USTEC 1 index point).
-      Duplicate timestamps are benign: every one is an exact duplicate row, so
-      deduplication in Stage 1 will be lossless.
+      <strong>Corrected in Stage 1:</strong> this audit originally read the duplicate
+      timestamps as exact duplicate rows and concluded that deduplication would be
+      lossless. It is not. The feed stamps to the millisecond and nothing finer, so a
+      fast market puts several genuine quotes on one timestamp. Only 0.09% of the corpus
+      repeats the preceding tick; 1.0% shares a millisecond with a <em>different</em>
+      quote, rising to 9% in the fastest months.
     </p>
   </section>
 
@@ -799,12 +803,14 @@
       <div class="step">
         <span class="step-tag">Stage 1</span>
         <div>
-          <h3>Deduplication is safe</h3>
+          <h3>Do not deduplicate on timestamp</h3>
           <p>
-            Every duplicate timestamp is an exact duplicate row, so dropping them loses
-            nothing. Keep the Sunday reopen and the 21:00 rollover flagged rather than
-            filtered &mdash; they are the only places FX spread exists, and a strategy needs
-            to be able to see them to avoid them.
+            A shared timestamp is usually a shared <em>millisecond</em>, not a repeated
+            print, so collapsing it deletes real quotes &mdash; and it does so hardest in the
+            fastest markets, shaving highs and lows off exactly the bars that matter.
+            Drop only ticks identical to their predecessor. Keep the Sunday reopen and
+            the 21:00 rollover flagged rather than filtered &mdash; they are the only places
+            FX spread exists, and a strategy needs to be able to see them to avoid them.
           </p>
         </div>
       </div>

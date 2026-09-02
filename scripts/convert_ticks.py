@@ -25,6 +25,12 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="reconvert up-to-date files")
     args = parser.parse_args()
 
+    # Self-heal first: a previous run that died before writing the manifest
+    # leaves converted files permanently unlisted, since they are no longer stale.
+    _, recovered = convert.reconcile_manifest()
+    if recovered:
+        print(f"recovered {recovered} manifest rows from parquet already on disk", flush=True)
+
     sources = convert.discover(args.symbols)
     todo = sources if args.force else [s for s in sources if convert.is_stale(s)]
     print(

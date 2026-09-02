@@ -19,6 +19,7 @@ RAW_TICK_DIR = ROOT / "Tick_Data"
 DATA_DIR = ROOT / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
 TICKS_DIR = PROCESSED_DIR / "ticks"
+BARS_DIR = PROCESSED_DIR / "bars"
 MANIFEST_PATH = PROCESSED_DIR / "manifest.parquet"
 
 REPORTS_DIR = ROOT / "reports"
@@ -34,6 +35,15 @@ def tick_parquet_path(symbol: str, year: int, month: int) -> Path:
     return tick_partition_dir(symbol) / f"{symbol}_{year:04d}_{month:02d}.parquet"
 
 
+def bar_partition_dir(symbol: str, interval: str) -> Path:
+    """Hive-style partition directory for one symbol's bars at one interval."""
+    return BARS_DIR / f"symbol={symbol}" / f"interval={interval}"
+
+
+def bar_parquet_path(symbol: str, interval: str, year: int, month: int) -> Path:
+    return bar_partition_dir(symbol, interval) / f"{symbol}_{interval}_{year:04d}_{month:02d}.parquet"
+
+
 def ensure_dirs() -> None:
-    for path in (PROCESSED_DIR, TICKS_DIR, REPORTS_DIR, QUALITY_DIR):
+    for path in (PROCESSED_DIR, TICKS_DIR, BARS_DIR, REPORTS_DIR, QUALITY_DIR):
         path.mkdir(parents=True, exist_ok=True)
