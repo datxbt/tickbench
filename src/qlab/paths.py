@@ -20,10 +20,14 @@ DATA_DIR = ROOT / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
 TICKS_DIR = PROCESSED_DIR / "ticks"
 BARS_DIR = PROCESSED_DIR / "bars"
+COST_DIR = PROCESSED_DIR / "cost"
+SPREAD_PROFILE_PATH = COST_DIR / "spread_profile.parquet"
+LATENCY_PROFILE_PATH = COST_DIR / "latency_profile.parquet"
 MANIFEST_PATH = PROCESSED_DIR / "manifest.parquet"
 
 REPORTS_DIR = ROOT / "reports"
 QUALITY_DIR = REPORTS_DIR / "data_quality"
+COST_REPORT_DIR = REPORTS_DIR / "cost_model"
 
 
 def tick_partition_dir(symbol: str) -> Path:
@@ -45,5 +49,13 @@ def bar_parquet_path(symbol: str, interval: str, year: int, month: int) -> Path:
 
 
 def ensure_dirs() -> None:
-    for path in (PROCESSED_DIR, TICKS_DIR, BARS_DIR, REPORTS_DIR, QUALITY_DIR):
+    for path in (
+        PROCESSED_DIR,
+        TICKS_DIR,
+        BARS_DIR,
+        COST_DIR,
+        REPORTS_DIR,
+        QUALITY_DIR,
+        COST_REPORT_DIR,
+    ):
         path.mkdir(parents=True, exist_ok=True)
