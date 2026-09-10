@@ -188,7 +188,7 @@ class CostModel:
         )
         if spread.is_empty() or latency.is_empty():
             raise FileNotFoundError(
-                f"no cost profile for {spec.name}; run scripts/build_cost_model.py"
+                f"no cost profile for {spec.name}; run scripts/pipeline/build_cost_model.py"
             )
 
         spread = _window_filter(

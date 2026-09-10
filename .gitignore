@@ -1,12 +1,15 @@
 # Raw vendor tick data (~48 GB) - never commit
 Tick_Data/
 
-# Derived data products - reproducible from raw via scripts/convert_ticks.py
+# Derived data products - reproducible from raw via scripts/pipeline/
 data/
 
-# Generated reports (keep the directory, ignore heavy outputs)
-reports/**/*.parquet
-reports/**/*.csv
+# Generated output. docs/ is the written record and is committed; reports/ is
+# whatever a script last wrote and is not. Rebuild it, don't review it.
+reports/
+
+# Compiled MetaTrader experts - build output of the .mq5 sources beside them
+*.ex5
 
 # Python
 __pycache__/
@@ -25,3 +28,4 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+desktop.ini
