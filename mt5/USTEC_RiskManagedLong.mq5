@@ -134,7 +134,15 @@ input int    InpCashCloseMin   = 960;    // US cash close, NY minutes (16:00)
 input int    InpDecisionWindow = 30;     // Minutes after the open to still act
 
 //--- Risk and safety ----------------------------------------------------
-input double InpMaxSpreadPts   = 5.0;    // Skip the rebalance above this spread
+//--- The spread guard is in basis points of price, not in MT5 "points". USTEC
+//--- quotes to 2 decimals, so one MT5 point is 0.01 index points and a normal
+//--- 0.6-index-point spread is sixty of them. A guard written in points and set
+//--- to a single-digit number rejects every quote this symbol has ever printed,
+//--- and it does so by returning before the decision is even reached - which
+//--- looks exactly like an expert that is not running. Basis points survive a
+//--- change of digits or of symbol, and they are the unit the cost research is
+//--- written in.
+input double InpMaxSpreadBps   = 5.0;    // Skip the rebalance above this spread, bps
 input double InpSwapCheckBps   = 2.5;    // Refuse to trade above this swap
 input double InpKillDrawdownPct= 25.0;   // Flatten and stop below this equity DD
 input double InpEquityOverride = 0.0;    // Size off this equity instead, 0 = live
@@ -427,6 +435,17 @@ double LotsForWeight(const double weight, const double price)
   }
 
 //+------------------------------------------------------------------+
+//| The effective weight actually on the book, read back from lots.  |
+//+------------------------------------------------------------------+
+double EffWeightHeld(const double price)
+  {
+   const double contract = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   const double eq       = SizingEquity();
+   if(eq <= 0.0 || price <= 0.0 || contract <= 0.0) return 0.0;
+   return HeldLots() * price * contract / eq;
+  }
+
+//+------------------------------------------------------------------+
 //| Move the net position to `lots`, in one order.                   |
 //+------------------------------------------------------------------+
 bool Rebalance(const double targetLots)
@@ -479,6 +498,61 @@ bool ClosePartial(const double lots)
 
 //+------------------------------------------------------------------+
 //| Safety                                                           |
+//+------------------------------------------------------------------+
+double SpreadBps()
+  {
+   const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(bid <= 0.0) return 1e9;
+   return (ask - bid) / bid * 10000.0;
+  }
+
+//+------------------------------------------------------------------+
+//| Everything about this symbol that decides whether the account is |
+//| big enough to express the strategy at all. Printed once, at      |
+//| attach, because the failure it describes is silent: the lots     |
+//| round to zero and the expert simply never trades.                |
+//+------------------------------------------------------------------+
+void LogSizing()
+  {
+   const double contract = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   const double minL     = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   const double step     = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   const double price    = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   const double eq       = SizingEquity();
+
+   PrintFormat("RML: %s digits %d point %.5f contract %.2f | lots min %.2f "
+               "step %.2f max %.2f | spread now %.2f bps, limit %.2f",
+               _Symbol, (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS), _Point,
+               contract, minL, step,
+               SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX),
+               SpreadBps(), InpMaxSpreadBps);
+
+   const double minNot  = minL * contract * price;
+   const double stepNot = step * contract * price;
+   if(minNot <= 0.0 || eq <= 0.0) return;
+
+   PrintFormat("RML: equity %.2f | smallest position %.2f lots = %.2f notional "
+               "= weight %.2f | one lot step = weight %.2f, band %.2f",
+               eq, minL, minNot, minNot / eq, stepNot / eq, InpBand);
+
+   //--- One lot step is the finest weight change this symbol can express. If it
+   //--- is coarser than the no-trade band then rounding, not the signal, is
+   //--- setting the position, and the run will not resemble the research
+   //--- however correct everything else is.
+   if(minNot / eq > InpMaxWeight)
+      PrintFormat("RML: WARNING - the SMALLEST tradeable position is weight %.2f, "
+                  "above MaxWeight %.2f. This expert cannot open a position on "
+                  "this account and will do nothing. About %.0f equity is the "
+                  "hard floor; about %.0f is where one lot step fits in the band.",
+                  minNot / eq, InpMaxWeight, minNot / InpMaxWeight, stepNot / InpBand);
+   else if(stepNot / eq > InpBand)
+      PrintFormat("RML: WARNING - one lot step is weight %.2f against a band of "
+                  "%.2f, so rounding sets the position, not the signal. About "
+                  "%.0f equity would fix that.",
+                  stepNot / eq, InpBand, stepNot / InpBand);
+  }
+
 //+------------------------------------------------------------------+
 bool SwapIsAcceptable()
   {
@@ -567,6 +641,8 @@ int OnInit()
                   "cushion multiple now %.3f",
                   g_propInitial, g_propInitial*(1.0 - InpPropMaxLossPct/100.0),
                   InpPropScale, PropMultiple());
+   LogSizing();
+   SwapIsAcceptable();          // report the swap now, not on the first decision
    PrintFormat("RML: NO DIRECTIONAL EDGE IS CLAIMED. Swap is not in the "
                "backtest; break-even is about 5 bps/night.");
    return INIT_SUCCEEDED;
@@ -664,9 +740,7 @@ void OnTick()
    if(minute < InpCashOpenMin || minute > InpCashOpenMin + InpDecisionWindow)
       return;
 
-   const double spread = (SymbolInfoDouble(_Symbol, SYMBOL_ASK)
-                          - SymbolInfoDouble(_Symbol, SYMBOL_BID)) / _Point;
-   if(spread > InpMaxSpreadPts)
+   if(SpreadBps() > InpMaxSpreadBps)
       return;                       // try again later in the decision window
    if(!SwapIsAcceptable())
      {
@@ -706,11 +780,22 @@ void OnTick()
    PrintFormat("RML: rebalance | close %.2f SMA%d %.2f | vol %.1f%% | "
                "weight %.2f -> %.2f | prop x%.3f | lots %.2f -> %.2f",
                last, InpMaLen, ma, vol, g_weight, target,
-               PropMultiple(), HeldLots(), lots);
+               propMult, HeldLots(), lots);
+   if(target > 0.0 && lots == 0.0)
+      PrintFormat("RML: target weight %.2f rounds to zero lots at equity %.2f - "
+                  "the account cannot hold the minimum position. Nothing traded.",
+                  target, SizingEquity());
+
    if(Rebalance(lots))
      {
-      g_weight = target;
-      g_effWeight = effTarget;
+      //--- Latch what is HELD, not what was wanted. Rebalance() reports success
+      //--- whenever the delta rounds away - including the case where the target
+      //--- rounds to zero lots on an account too small to carry one - and
+      //--- recording the intended weight there leaves the band comparing against
+      //--- a position that does not exist. One such day and the expert stands
+      //--- aside for good, silently, which is what happened.
+      g_effWeight = EffWeightHeld(price);
+      g_weight    = (propMult > 0.0) ? g_effWeight / propMult : 0.0;
       SaveState();
      }
    else

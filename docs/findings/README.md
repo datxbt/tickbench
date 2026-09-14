@@ -1,6 +1,6 @@
 # Findings
 
-Twenty write-ups, each a hypothesis tested on 696M ticks of Exness raw-spread
+Twenty-nine write-ups, each a hypothesis tested on 696M ticks of Exness raw-spread
 data (EURUSD, USDJPY, XAUUSD, USTEC, 2020-2026) against the measured cost model
 in [../cost-model.md](../cost-model.md). **One strategy was accepted and one
 forecasting model half-accepted; everything else was rejected.**
@@ -14,14 +14,23 @@ of each write-up, in the order the studies were run.
 | [Forecasting intraday volume](news-breakout-and-volume-spar.md) | **half accepted** - the forecast is real, the money is not |
 | [Intraday momentum on USTEC](intraday-momentum-and-btc-dynamics.md) | replicates in mechanism, decays to zero out of sample |
 | [The 5-minute opening range breakout](opening-range-breakout.md) | does not carry to validation |
+| [The 15-minute opening range, pre-registered](orb15.md) | inconclusive on the held-out split, not deployable |
 | [Sizing for a two-step prop challenge](propfirm-sizing.md) | sizing study for the accepted overlay |
 | [Least time to a funded account](propfirm-speed.md) | sizing study for the accepted overlay |
 | [XAUUSD](xauusd-rejected.md) | **rejected**, no strategy |
 | [Gold price levels](level-interaction.md) | **rejected** |
+| [Round numbers on EURUSD, USDJPY and USTEC](osler-round-numbers.md) | **rejected** |
+| [Discovery program: tail-conditioned structure](discovery-program.md) | **rejected**, 16 hypotheses; minute-scale reversal is real in 2020-2023 and gone in 2024-2025 |
+| [Rebalancing flow into the US close](close-rebalance.md) | **rejected** |
 | [USDJPY carry harvest](usdjpy-rejected.md) | **rejected** on the held-out split |
+| [Scheduled flows: macro releases and the FX fixings](scheduled-flows.md) | **rejected** on the held-out split |
 | [EURUSD](eurusd-rejected.md) | **rejected**, no strategy |
 | [Big bar, pause bar, break of the pause bar](pause-bar.md) | **rejected** |
 | [The engulfing candle](engulfing.md) | **rejected** |
+| [The engulfing bar's quadrants](engulfing-quadrant.md) | **rejected** |
+| [Liquidity sweeps and order blocks (UAlgo)](sweep-orderblock.md) | **rejected**, both setups, the opposite-block target and the reversed trade, 1m to D1 |
+| [Precision Sniper confluence scoring (WillyAlgoTrader)](precision-sniper.md) | **rejected**, all 6 presets, 1m to D1, 44 exits; matches a coin flip on a random bar |
+| [The New York open EMA rule](open-ema.md) | **rejected** - the stated trailing exit matches a coin flip, and the reported 57% win rate is not reachable by any trailing stop |
 | [Session opening-range breakout](session-breakout.md) | **rejected** |
 | [The overnight-intraday reversal family](overnight-reversal.md) | **rejected** |
 | [Gold structural breaks](structural-break.md) | **rejected** |
@@ -492,6 +501,51 @@ horizon, and adding measured cost back in money.
 
 The test split was not spent: nothing reached it.
 
+## The engulfing bar's quadrants - **rejected**
+
+A different pattern from the one above, despite the name: the bar must take out
+the prior candle's *high* (a wick condition) and close below the prior candle's
+*open*. Divide that bar into quarters with `0, 0.25, 0.5, 0.75, 1` anchored at
+its low, work a resting sell order in the 0.25-0.5 zone, target the low.
+Implemented in `qlab.strategies.engulfing_quadrant`, run tick-by-tick on all
+four instruments across **eleven timeframes from 1m to 4h**. Full report:
+`docs/findings/engulfing-quadrant.md`.
+
+1,386,322 signals, 784,381 fills, 772,796 trades. The idea names no stop and one
+target, so three entry conventions x three stops x five targets were resolved
+against the same fills. Pooled over dev and validation the stated geometry loses
+**0.502R per trade**, is positive in **1 of 88** cells, and none of the 1,320
+(cell x stop x target) combinations clears t = +2. Four findings:
+
+- **The rejection is algebraic, not empirical.** For entry `e`, stop `s` and
+  target `t` on the bar's own ladder, the break-even strike rate at zero cost is
+  `(s-e)/(s-t)` - which is exactly the driftless first-passage probability. The
+  two coincide for *every* triple, so the trade is a fair bet by construction and
+  costs can only push it below zero. No zone, stop, target or timeframe can
+  rescue it; only a pattern that puts drift into the walk could, and this one
+  does not.
+- **The eleven-rung ladder is that algebra playing out.** As cost/R falls from
+  0.520 to 0.028, the realised strike rate closes on the fair coin (-0.144 to
+  -0.006) and never on break-even (-0.550 to -0.040). At 1m and 2m the round turn
+  *exceeds the entire payoff* - break-even above 95%, and above 100% at 1m, so
+  the trade is unwinnable at any strike rate.
+- **The retracement entry selects against the trader.** 36% of signals are
+  *missed* - price reaches the bar's low without ever returning to the zone - and
+  those bars closed hardest on their lows. A backtest that checks the target
+  before the entry books all 354,858 dev misses as wins.
+- **Raw comparisons against the nulls are an artifact.** The setup beats both
+  size-matched nulls on mean R in **160 of 176** comparisons, which looks
+  decisive and is not: signal bars close near their lows, moving the entry closer
+  to the target, which raises the fair-coin rate and cuts the payoff together.
+  Normalised by each variant's own geometry the advantage vanishes and the setup
+  is the worst of the three - notably it lands 0.094 below its own fair coin
+  against 0.089 for a null that keeps everything except the stop run, so the
+  sweep itself is worth about -0.005. The bullish mirror reproduces the setup to
+  0.0007R, and the stricter "prior candle must be bullish" reading is worse
+  still.
+
+The test split was not spent.
+
 ## Session opening-range breakout - **rejected**
 
 `XAUUSD_SessionBreakout_2026.mq5`, re-implemented tick-by-tick in
@@ -927,3 +981,352 @@ year instead of 37. Its RQ2 (only-sell is best) also inverts - only-sell is the
 worst mode here and only-buy the best - which identifies both results as the
 sample's drift arriving through whichever one-sided mode faces it, not a property
 of the models. The locked test split was not touched.
+
+## Scheduled flows: macro releases and the FX fixings - **rejected on the held-out split**
+
+Full report: `docs/findings/scheduled-flows.md`. Eight hypotheses in three
+pre-registered waves, each a clock rule on a calendar known in advance, each
+against the same rule on the same clock minutes on days with no event. The
+search went here because scheduled events with a named counterparty are the one
+place both of this corpus's constraints - minute edges too small, daily samples
+too short - can be escaped at once.
+
+**One candidate reached the test split, and it failed there.** The unwind after
+the 09:55 JST Tokyo fix on gotobi days - the 5th, 10th, 15th, 20th, 25th and
+month-end, when Japanese importers buy USD at the fix (Ito & Yamada 2017):
+
+| short USDJPY 09:55 -> 11:00 JST, gotobi days | n | net bps | t |
+| --- | ---: | ---: | ---: |
+| dev | 281 | +2.35 | +3.15 |
+| validation | 107 | +4.16 | +3.17 |
+| **test, run once** | **83** | **-0.51** | **-0.44** |
+
+Before the test it had cleared everything: a pre-registered cell passing
+Bonferroni across its wave, a weekday-matched permutation p of 0.0001, adjacent-
+day placebos at zero, every year 2020 to H1 2025 positive, positive at every exit
+from 10:15 to 15:00, +2.45 bps under doubled spread, fully adverse slippage and
+1000 ms latency at once, and +2.94 bps at t = +4.49 on tick-accurate fills with a
+one-second entry latency. It was specific to the instrument the mechanism names
+- EURUSD, gold and USTEC showed nothing. Against the pre-registered rule the
+test is a clean FAIL, about 2.6 standard errors below dev and validation. Read
+after the verdict: the everyday post-fix unwind on non-gotobi days went too
+(+1.04 bps at the mid before, -0.38 in test), so something changed at the fix
+around mid-2025.
+
+Everything else failed earlier:
+
+- **Pre-FOMC drift** on USTEC is +33 bps a meeting, the same in both splits
+  (+32.6 / +34.6) and at the published magnitude - on 43 meetings, t = +1.42. The
+  one regularity here this corpus can neither establish nor refute.
+- **Fading USTEC's first reaction to CPI and NFP** looked like reversal in all six
+  cells (NFP 120 m: -28 bps followed, t = -2.52) and then went the **wrong way** on
+  347 fresh 08:30 releases (-7.09 bps faded, t = -1.71), with no dose-response
+  even in sample.
+- **The FOMC statement fade** was positive on all four instruments and does not
+  transfer to the minutes, the same 14:00 minute without a press conference.
+- **The WM/R 16:00 London fix fade** loses on every instrument; month-end hedge
+  rebalancing is underpowered and unsigned.
+- **Two further benchmarks, added afterwards** - the Shanghai Gold Benchmark
+  auctions and the ECB reference rate, the same fade shape - fail all three
+  primary cells (t -2.42, -1.64, -1.12). Every mid stays within 1 bp of zero and
+  of its control hour; the losses are the round turn.
+
+The first clean out-of-sample failure of a candidate that passed every in-sample
+check this project has: the case for the locked split, made by the only
+candidate that got far enough to use it.
+
+## Round numbers on EURUSD, USDJPY and USTEC - **rejected**
+
+Full report: `docs/findings/osler-round-numbers.md`. Osler's order-book
+mechanism - take-profits at round numbers, stops just beyond - was tested only
+on gold, and Osler's evidence is FX. The same `qlab.levels` harness, unchanged,
+on the three untested instruments with nested grids (EURUSD 10/50/100 pips,
+USDJPY 0.10/0.50/1.00, USTEC 50/100/500 points).
+
+**All nine pre-registered primary cells fail** - coarsest grid x touch, sweep,
+breach x three instruments, per-day t at 30 minutes against a Bonferroni 2.77.
+The best is EURUSD big-figure sweeps at +0.70, negative on validation. Every
+real mid sits inside its 12-draw date-shifted placebo.
+
+- The fine grids are strongly negative per day (t down to -17) with a mid near
+  zero: several events a day, a round turn each, no edge.
+- The one ordering in Osler's favour is EURUSD sweep reversion growing with the
+  grid (+0.35 / +0.39 / +1.56 bps at the mid, 120 minutes) - the right shape, on
+  the paper's own instrument, inside its placebo band.
+- USDJPY big-figure sweeps *continue* (dev per-day t -2.74), backwards exactly as
+  gold's were. Two instruments now have the reversion half the wrong way round
+  and none has it the right way.
+
+The test split was not spent.
+
+## Rebalancing flow into the US close - **rejected**
+
+Full report: `docs/findings/close-rebalance.md`. Leveraged index funds and
+short-gamma dealers trade with the day's move near the close, so the last half
+hour should continue it (Cheng & Madhavan 2009; Baltussen et al. 2021). The
+pre-registered cell - trade the sign of prior-close -> 15:30 ET, hold to 16:00,
+USTEC - is **-0.13 bps at t = -0.11**, and validation goes significantly the wrong
+way (-4.28 bps, t = -2.64). The dose-response slope is +0.0175 at t = +1.03. Gold,
+a falsification instrument, is the only one with a significant slope, and was
+not pursued for exactly that reason. The test split was not spent.
+
+## The 15-minute opening range, pre-registered - **inconclusive on test, not deployable**
+
+Full report: `docs/findings/orb15.md`. The follow-up the 5-minute report named
+as its one legitimate single shot. Dev +0.223 R (t = +2.20), validation +0.202 R
+(t = +1.14), pooled +0.217 R at t = +2.46 - and again the direction does no
+measurable work: a shuffled-sign placebo earns +0.178 / +0.078 R and taking both
+sides +0.171 / +0.231. It went to test as a geometry edge with a stated
+low-power warning and returned **+0.086 R at t = +0.57** over 256 sessions -
++0.262 R in H2 2025, -0.042 in 2026. Inconclusive under its pre-registered rule;
+the series decays year on year. The test split is spent for the opening-range
+family.
+
+## Discovery program: tail-conditioned structure - **rejected, one observation**
+
+Full log: `docs/findings/discovery-program.md`. Scripts:
+`scripts/research/discovery_batch1.py`, `scripts/research/discovery_batch2.py`.
+A running, pre-registered search rather than a single study: hypotheses carry
+IDs and parents, each batch is written into the log before its script runs.
+
+The premise: minute-scale predictability here is real and 0.2-0.5x a round
+turn, and every earlier test of it was linear. If the response to a move grows
+with the move, conditioning on the tails raises the edge while the cost stays
+fixed. **Batch 1 - 24 pre-registered cells on dev, Sidak |t| 3.07 - found none:**
+
+- After a 4-sigma 15-minute move the next hour is a random walk: max-favourable
+  and max-adverse excursions are equal on all four instruments, with no
+  dose-response in the threshold.
+- Scheduled against unscheduled jumps makes no difference.
+- A market that under-reacts to a shock elsewhere does not catch up.
+- A compressed range predicts expansion (forward range 1.45-1.62x vs 1.0x) but
+  not which way.
+
+**Batch 2** took the one coherent thread - USDJPY continues where the other three
+do not, in three separate constructions - to validation as a single fixed cell.
+Dev: 27 of 27 grid cells positive, dose-response in move size, not drift
+(+2.45 bps hour-and-year-adjusted against +2.42 raw). Validation: **+1.07 bps at
+the mid, +0.25 net, t +0.58** - a fail under the rule. The rule was underpowered
+(expected t 1.38 at the dev effect size), which is recorded as a registration
+error; pooled over both splits the net is **+1.31 bps, 95% CI [-0.33, +2.95]**.
+An observation, not an edge. The test split was not spent.
+
+**Batch 3** conditioned on the two other things the feed carries - the spread
+and the tick count - and on the weekend. Zero of nine primary cells pass. Tick
+activity sorts nothing; the weekend reverses on USTEC and gold and continues on
+FX, which pools to noise. Spread shocks were registered as a reversal and came
+out backwards: at 120 minutes the displacement made while the spread was blown
+out **continues** on all four instruments (pooled +5.30 bps, t +2.67 on dev) -
+the Glosten-Milgrom signature of informed flow. It was not taken to validation:
+the expected t there is 1.26, because the broker rebuilt its spread
+distribution in Q4 2023 and the trigger almost stopped firing everywhere except
+USDJPY.
+
+The program's conclusion is about power. The effects that recur are 1-9 bps a
+trade against 28-70 bps of noise, which needs about 1,300 independent trades -
+seven to eight years - to confirm at t 2.5. The held-out data here is 2.7 years.
+
+**Batch 4** (`scripts/research/discovery_batch4.py`) took the one kind of test
+the power arithmetic still allows - a strategy trading many times a day on all
+four instruments, which is the only kind validation's 390 days can confirm (it
+needs a net Sharpe near 2). A gradient-boosted forecast over 24 state variables,
+one model per instrument, fitted on 2020-2022 and read on 2023 inside dev, traded
+only when the forecast cleared cost. **Both horizons fail their gate**: at 30
+minutes the pooled net is -0.72 bps a trade (per-day t -2.84), at 120 minutes
+-0.52 (t -2.06). Out-of-sample correlation of forecast with outcome is -0.004 to
++0.024, and randomising the direction does about as well. The forecastable mean
+at the mid is about +0.3 bps - below this account's commission alone (0.2-0.45
+bps), so no execution style closes the gap.
+
+**Batches 5-7** (`scripts/research/discovery_batch5.py` .. `discovery_batch7.py`)
+ran the conditional grid the program had not: liquidity sweeps by level, depth
+and reclaim time, breakouts that hold, extreme-move fades, conditional
+autocorrelation, opening drives and USD dislocations, crossed with session,
+volatility regime, USD direction and intraday trend, at 1-60 minutes - **81,040
+cells**, screened on odd months of dev under Benjamini-Hochberg, confirmed on
+even months, and re-run on placebo outcomes. Net of today's cost, zero cells pass.
+At the mid, **432 cells replicate across the halves against 14-22 on placebo** -
+real reversal structure, mostly smaller than the round turn. The 23 cells that
+clear cost, pooled and filled on ticks at 250 ms, earned +0.44 bps a trade on the
+confirmation half (t 3.85) and earned a validation shot, where they lost **-0.44
+bps a trade at t -3.57**: the mid fell from +1.17 to +0.09. The structure belongs
+to the 2020-2023 quoting regime, and interleaved halves - which share an era by
+design - could confirm it replicated but not that it persisted. Sixteen
+hypotheses, none validated; the next step is an owner decision between searching
+the post-2023 regime (spending test), forward time, or new data.
+
+## Liquidity sweeps and order blocks (UAlgo) - **rejected**
+
+Two components of UAlgo's *Price Action Toolkit Lite* TradingView indicator,
+replayed bar for bar in `qlab.strategies.sweep_orderblock` and traded tick by
+tick on all four instruments at **twelve timeframes, 1m to D1**. Full report:
+`docs/findings/sweep-orderblock.md`, pre-registered before any outcome was
+computed.
+
+* **Liquidity sweep** - a 30/30 pivot level taken by a bar that closes back
+  inside it; enter against it at market, stop at the sweep bar's wick.
+* **Order block** - after a close through the latest zigzag swing (BoS/CHoCH),
+  the extreme of the bars since that swing, one ATR deep; rest a limit at the
+  near edge while the block is among the newest two shown, stop at the far edge.
+
+The indicator trades nothing, so both stops were run with and without an ATR
+buffer, against 1R/2R/3R targets and no target: 8 exits per setup, 768
+combinations on dev. Pooled over dev and validation at the stated 2R exit:
+
+| | trades | mean R | win | fair coin | cost/R |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| liquidity sweep | 126,787 | **-0.471** | 0.289 | 0.333 | 0.355 |
+| order block | 358,408 | **-0.528** | 0.275 | 0.333 | 0.285 |
+
+**0 of 96 primary cells pass on dev**, and 3 of 768 exit combinations clear
+t = +2 against ~19 expected by chance; 0 of 751 on validation. Four findings:
+
+* **Both converge on the coin from below as the timeframe slows and never cross
+  it.** The loss tracks cost/R down the ladder, the shape of every price-action
+  study here. The one positive pooled rung, sweeps at 4h (+0.137R on 172 dev
+  trades), is -0.365R on validation.
+* **The structure break carries nothing.** Normalised for cost, a block built at
+  a break of structure and the same zone built at a random bar with no break
+  differ by 0.004 in strike rate on dev; CHoCH and BoS blocks lose the same to
+  0.001R.
+* **Block fills are adversely selected.** After a limit fills at the block,
+  price keeps going through it - -0.198 bps over the next minute at t -11.4 on
+  dev, twice a random zone's. The moves that bounce short of the near edge never
+  fill.
+* **The sweep's reversal is a 2020-2023 property.** On dev a 1m sweep reverses by
+  0.06 bps over the next bar (t 2.1), a tenth of a round turn; on validation the
+  swept side *continues* (-0.147 bps at five bars, t -2.5). It beat its null by
+  0.044 in cost-normalised strike rate on dev and lost to it on validation - the
+  regime boundary `discovery-program.md` found by another route.
+
+**Addendum A - to the opposite block, also rejected.** The owner's reading of
+the trade: enter at the start of the block, stop at its other end, take profit
+at the opposite-side block the chart shows. Pre-registered as 48 cells at the
+opposite block's near edge; **0 pass on dev**. Pooled over both splits:
+315,565 trades, **-0.545R**, strike rate 0.143 against a per-trade fair coin
+of 0.191, 4 of 95 cells positive, -$38,540 at 0.01 lot - no better than the
+fixed 2R target (-0.528R) and below the null zones' margin. Opposite blocks are
+reached *less* often than a random level the same distance away, so they are
+not the magnet the reading assumes; targeting their far edge changes nothing
+(-0.544R).
+
+**Addendum B - the opposite trade, also rejected.** Taking the other side of
+every trade loses about the same money: at 0.01 lot over both splits the
+sweep goes from -$13,927 to -$12,280 mirrored (original target as stop,
+original stop as target) and -$9,715 reversed; the block from -$40,645 to
+-$42,107 and -$36,675. 0 of 96 primary cells pass for either reading. **A
+trade and its exact opposite both win less often than their fair coin**, which
+a directional edge cannot do - the shortfall is the spread, slippage and the
+stop-first tie, not a direction. The opposite of a resting limit is also not
+the same trade reversed: a stop at the block's edge triggers half a spread
+sooner, on touches the limit never filled, and pays slippage. The one rung
+positive in both splits, order blocks at 4h (+0.055R mirrored, t 2.1 over
+645 trades), was selected after looking and is too small for the test split
+to confirm (expected t about 1.0).
+
+The test split was not spent.
+
+
+---
+
+## Precision Sniper confluence scoring (WillyAlgoTrader) - **rejected**
+
+A TradingView confluence indicator (Pine v6 v1.4.0): ten weighted factors
+scored per bar, an A+/A/B grade, an EMA-cross trigger gated on the score, and
+a structure stop with three R-multiple targets on a trailing ladder. Ported in
+`qlab.strategies.precision_sniper` and traded tick by tick on all four
+instruments at **twelve timeframes, 1m to D1**, across **all six parameter
+presets** and both settings of its HTF filter. Full report:
+`docs/findings/precision-sniper.md`, pre-registered before any outcome.
+
+17,780,538 signals resolved - 552 cells, 44 exits each (4 stop constructions x
+11 targets, including the script's own managed ladder simulated on the tape),
+against a size-matched mechanics-only null. Pooled dev + validation at the
+script's own configuration: **-0.2535R** over 6.02M trades, against a null of
+**-0.2586R**. **0 of 24,244 grid combinations pass on dev**; 2 of 24,102 on
+validation, and those two are the same five daily trades counted twice.
+
+| | dev | validation |
+| --- | ---: | ---: |
+| mean R at zero cost, setup | -0.029 | +0.011 |
+| mean R at zero cost, matched null | -0.026 | -0.009 |
+
+Four findings:
+
+* **Mean R is a readout of cost/R, not of skill.** It climbs monotonically
+  from -0.347 at 1m (cost/R 0.250) to +0.102 at D1 (cost/R 0.017) and crosses
+  zero where the round turn stops taking ~2% of the stop - while the TP3
+  strike rate stays between 0.099 and 0.145 at *every* timeframe on both
+  splits. Fitted across all 552 cells, the zero-cost intercept is
+  indistinguishable from the null's and changes sign between splits.
+* **The signal carries no direction.** Forward mid return from the fill, no
+  barrier and no cost: across 24 timeframe-by-split cells the largest |t| is
+  3.16, and it is negative (-0.058 bps, dev 1m). There is no horizon at which
+  these entries predict the next move.
+* **Three of the four filters cannot bind.** Trade counts are identical at
+  minimum scores 0, 3, 4 and 5, because the trigger conditions themselves
+  award 1.5 of the 8 available points to every signal; hide-C removes 0.6%;
+  and at the HTF filter's **default empty setting the 1.5-point HTF factor -
+  the heaviest of the eight - is awarded to 0.000 of signals**, because
+  `request.security("", ema[1])` reads the chart's previous bar, which on a
+  crossover bar is by construction the pre-cross state. Switching a real HTF
+  on moves the A+ share from 18% to 46% without moving the P&L.
+* **`Auto` selects the worst cells in the study.** It maps 5m and below to
+  `Scalping`, where cost/R peaks: EURUSD 1m is -0.486R at t -57.7 on dev and
+  -0.566R at t -33.5 on validation.
+
+Two of the ten factors - the volume surge and VWAP - are not computable on a
+quote feed with no size, so the script's own adaptive scale ran the engine at
+max 8.0; the volume factor is in any case added to the bull and bear scores
+identically and cannot discriminate direction. The test split was not spent.
+
+---
+
+## The New York open EMA rule
+
+Full report: `docs/findings/open-ema.md`. Strategy in
+`qlab.strategies.open_ema`; run by `scripts/backtests/backtest_open_ema.py`.
+
+A creator's rule for NAS100 on 5 minutes: take the 09:30-09:35 candle, go long
+if it closes above the 12-period EMA and short if below, then trail the stop and
+"stay in as long as momentum continues" at 1% risk. Reported over 2019-2026:
+1,448 trades, +982%, 57% wins, PF 1.29, 19.7% max drawdown. Tested on USTEC over
+960 dev and 368 validation sessions, tick-resolved, with the unspecified exit
+swept across three families at seven distances.
+
+**Rejected.** Four findings, in the order they bind:
+
+* **The rule collapses before it is tested.** `c > ema(c)` rearranges to
+  `c > ema(c).shift(1)` for every span, so the 12 does no work in choosing the
+  side - it survives only in how far the close sits from the level. The rule is
+  a one-bit momentum print: did the first five minutes close above where the
+  previous hour settled? The upside is that the specification's only real
+  ambiguity - whether the signal candle is in its own average - dissolves.
+* **The stated exit is the weakest of the three families.** Trailing tops out at
+  +0.052 R per trade pooled; a *fixed* stop with no trail reaches +0.224 R, four
+  times as much. Tight trails are stopped on 100% of sessions with a 2-8 minute
+  mean hold and lose money net of cost - `trail @ 0.05` has the highest gross
+  edge in the study (+0.152 R, t +3.93 on dev) and is -0.014 R after a 1.9-point
+  round turn. **No cell in the 21-cell grid clears q = 0.10.**
+* **It does not beat a coin flip on its own fills.** As specified, +0.048 R
+  pooled (t +1.65, bootstrap p 0.084) against the coin's +0.009 R, difference
+  p = 0.286 - and on validation the coin won outright. The cell that *does*
+  reproduce the headline return (+942% at 1% risk, PF 1.26) is the fixed-stop
+  cell, not the rule, and it too fails against the coin (p 0.170, and the coin
+  beat it on validation +0.254 R to +0.222 R). Compounding at fixed fractional
+  risk turns a per-trade difference no test can resolve into an eight-fold gap
+  in total return, which is why the report reads the edge and the headline apart.
+* **The reported statistics are internally inconsistent with a trailing stop.**
+  57% wins at PF 1.29 implies a payoff of 0.97 - winners the same size as losers
+  - and a trail makes the opposite shape. Across the sweep the win rate climbs
+  from 35.5% to 52.3% only as the payoff falls from 1.62 to 1.02, and **0 of 21
+  cells reach both numbers.** That is a claim about the reported figures rather
+  than about this corpus, and it points at a profit target rather than a trail.
+
+The side does have the right sign in both splits (+0.023 and +0.042 ATR to the
+bell) and the edge orders monotonically in |close - EMA|, which is what the
+mechanism predicts - but the coin control orders the same way, so most of that
+gradient is the volatility of a wide opening candle rather than information.
+The whole (small) effect also depends on the EMA including overnight tape: a
+regular-session-only EMA has a signal three times larger by magnitude and no
+edge at any distance. The test split was not spent.

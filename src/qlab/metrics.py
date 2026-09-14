@@ -221,3 +221,102 @@ def format_tearsheet(sheet: dict) -> str:
     width = max(len(k) for k, _ in rows)
     head = f"--- {sheet['label']} ---" if sheet.get("label") else ""
     return "\n".join([head] + [f"  {k:<{width}}  {v}" for k, v in rows])
+
+
+# --------------------------------------------------------------------------
+# Position-based measurement
+# --------------------------------------------------------------------------
+#
+# The tearsheet above starts from a list of round trips, which is the right
+# shape for a strategy that opens and closes discrete trades. A strategy that
+# instead holds a continuously varying weight has no round trips to list - its
+# record is a series of periodic returns - so it needs its own entry point
+# rather than a synthetic trade list built to satisfy this one.
+#
+# Both end in the same units and the same drawdown function, so a weight-based
+# strategy and a trade-based one can still be put in the same table.
+
+
+def tearsheet_from_returns(
+    returns_bps,
+    *,
+    label: str = "",
+    periods_per_year: int = TRADING_DAYS,
+    turnover=None,
+) -> dict:
+    """Headline numbers for a series of periodic net returns, quoted in bps.
+
+    Returns are compounded, not summed: a strategy that holds a *weight* is
+    implicitly rebalanced to that weight on equity, so its equity curve is
+    geometric and a sum would overstate it after a drawdown.
+    """
+    r = pl.Series(returns_bps).drop_nulls()
+    r = r.filter(r.is_finite())
+    n = r.len()
+    if n == 0:
+        return {"label": label, "periods": 0}
+
+    # The curve is anchored at 1.0 before the first return, so a loss in the
+    # very first period counts as drawdown rather than becoming the peak the
+    # rest of the curve is measured against.
+    growth = pl.concat([pl.Series([1.0]), (1.0 + r / 1e4).cum_prod()])
+    years = n / periods_per_year
+    total = float(growth[-1]) - 1.0
+    cagr = (1.0 + total) ** (1 / years) - 1 if years > 0 else 0.0
+
+    mean = float(r.mean())
+    sd = float(r.std()) if n > 1 else 0.0
+    downside = r.filter(r < 0)
+    sd_down = float(downside.std()) if downside.len() > 1 else 0.0
+    ann_vol = sd / 1e4 * math.sqrt(periods_per_year)
+    max_dd, dd_len = _drawdown(growth)
+
+    sheet = {
+        "label": label,
+        "periods": n,
+        "years": years,
+        "total_pct": 100.0 * total,
+        "cagr_pct": 100.0 * cagr,
+        "ann_vol_pct": 100.0 * ann_vol,
+        "mean_bps": mean,
+        "sharpe": mean / sd * math.sqrt(periods_per_year) if sd > 0 else float("nan"),
+        "sortino": mean / sd_down * math.sqrt(periods_per_year)
+        if sd_down > 0 else float("nan"),
+        "max_dd_pct": 100.0 * max_dd,
+        "max_dd_periods": dd_len,
+        "calmar": (cagr / abs(max_dd)) if max_dd < 0 else float("nan"),
+        "hit_rate_pct": 100.0 * float((r > 0).mean()),
+        "best_pct": float(r.max()) / 100.0,
+        "worst_pct": float(r.min()) / 100.0,
+        # A t-stat on the mean period return: the honest answer to "could this
+        # be zero?", and on a daily strategy over a few years it is usually
+        # humbling.
+        "t_stat": mean / sd * math.sqrt(n) if sd > 0 else float("nan"),
+    }
+    if turnover is not None:
+        t = pl.Series(turnover).drop_nulls()
+        sheet["turnover_per_year"] = float(t.sum()) / years if years > 0 else float("nan")
+    return sheet
+
+
+def format_returns_tearsheet(sheet: dict) -> str:
+    if sheet.get("periods", 0) == 0:
+        return f"{sheet.get('label', '')}: no data"
+    rows = [
+        ("sessions", f"{sheet['periods']:,}  ({sheet['years']:.2f} yr)"),
+        ("total return", f"{sheet['total_pct']:+.1f}%"),
+        ("CAGR", f"{sheet['cagr_pct']:+.2f}%"),
+        ("volatility", f"{sheet['ann_vol_pct']:.2f}%"),
+        ("Sharpe", f"{sheet['sharpe']:.2f}"),
+        ("Sortino", f"{sheet['sortino']:.2f}"),
+        ("max drawdown", f"{sheet['max_dd_pct']:.1f}%  ({sheet['max_dd_periods']} sessions)"),
+        ("Calmar", f"{sheet['calmar']:.2f}"),
+        ("hit rate", f"{sheet['hit_rate_pct']:.1f}%"),
+        ("mean session", f"{sheet['mean_bps']:+.2f} bps  (t = {sheet['t_stat']:+.2f})"),
+        ("best / worst", f"{sheet['best_pct']:+.2f}% / {sheet['worst_pct']:+.2f}%"),
+    ]
+    if "turnover_per_year" in sheet:
+        rows.append(("turnover", f"{sheet['turnover_per_year']:.1f}x notional/yr"))
+    width = max(len(k) for k, _ in rows)
+    head = f"--- {sheet['label']} ---" if sheet.get("label") else ""
+    return "\n".join([head] + [f"  {k:<{width}}  {v}" for k, v in rows])

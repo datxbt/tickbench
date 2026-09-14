@@ -36,7 +36,7 @@ def _forward_returns(symbol: str, freq: str) -> pd.Series:
     *paired* one against holding the thing. A Sharpe measured against zero says
     gold went up, which nobody disputes.
     """
-    path = paths.bar_partition_dir(symbol, freq) / f"{symbol}_{freq}.parquet"
+    path = paths.whole_bar_path(symbol, freq)
     frame = pl.read_parquet(path).select("ts", "close").to_pandas().set_index("ts")
     return frame["close"].pct_change().shift(-1)
 

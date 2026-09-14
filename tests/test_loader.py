@@ -21,8 +21,11 @@ from qlab.loader import (
     SplitLockedError,
     clean_ticks,
     cleaning_report,
+    available_months,
     get_split,
+    load_bars,
     load_ticks,
+    parse_month,
 )
 
 UTC = timezone.utc
@@ -226,3 +229,54 @@ def test_split_and_explicit_dates_are_mutually_exclusive(tmp_path, monkeypatch):
     )
     with pytest.raises(ValueError, match="not both"):
         load_ticks("EURUSD", split="dev", start="2024-06-01")
+
+
+def test_a_non_monthly_file_is_named_rather_than_mis_parsed(tmp_path, monkeypatch):
+    """The layout is pruned on filenames, so a file that breaks it must say so.
+
+    A whole-history cache written into a partition directory used to reach
+    ``int()`` on a slice of its own symbol name and die as
+    ``invalid literal for int() with base 10: 'STEC'``, which names neither the
+    file nor the convention it broke.
+    """
+    monkeypatch.setattr("qlab.paths.BARS_DIR", tmp_path)
+    directory = tmp_path / "symbol=USTEC" / "interval=1d"
+    directory.mkdir(parents=True)
+    bars = pl.DataFrame(
+        {"ts": [datetime(2024, 6, 3, tzinfo=UTC)], "close": [18000.0]},
+        schema={"ts": pl.Datetime("us", "UTC"), "close": pl.Float64},
+    )
+    bars.write_parquet(directory / "USTEC_1d.parquet")
+
+    with pytest.raises(ValueError) as excinfo:
+        load_bars("USTEC", "1d", split="dev")
+
+    message = str(excinfo.value)
+    assert "USTEC_1d.parquet" in message
+    assert "{symbol}_{interval}_{YYYY}_{MM}.parquet" in message
+    assert "invalid literal for int()" not in message
+
+    # available_months() reads the same filenames and must fail the same way.
+    with pytest.raises(ValueError, match="USTEC_1d.parquet"):
+        available_months("USTEC", "1d")
+
+
+def test_parse_month_accepts_both_bar_and_tick_names(tmp_path):
+    """Ticks carry no interval in the name; bars do. Both end in _YYYY_MM."""
+    assert parse_month(tmp_path / "EURUSD_2024_06.parquet") == (2024, 6)
+    assert parse_month(tmp_path / "EURUSD_1m_2024_12.parquet") == (2024, 12)
+    assert parse_month(tmp_path / "USTEC_15m_2020_01.parquet") == (2020, 1)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "EURUSD_1d.parquet",  # whole-history cache, no month at all
+        "EURUSD_1m_2024_13.parquet",  # month 13 is not a month
+        "EURUSD_1m_2024_6.parquet",  # unpadded, so it cannot be sliced positionally
+        "EURUSD_1m_202406.parquet",
+    ],
+)
+def test_parse_month_rejects_anything_that_is_not_a_padded_month(tmp_path, name):
+    with pytest.raises(ValueError, match=name):
+        parse_month(tmp_path / name)

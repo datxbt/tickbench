@@ -20,6 +20,7 @@ DATA_DIR = ROOT / "data"
 PROCESSED_DIR = DATA_DIR / "processed"
 TICKS_DIR = PROCESSED_DIR / "ticks"
 BARS_DIR = PROCESSED_DIR / "bars"
+WHOLE_BARS_DIR = PROCESSED_DIR / "bars_whole"
 COST_DIR = PROCESSED_DIR / "cost"
 SPREAD_PROFILE_PATH = COST_DIR / "spread_profile.parquet"
 LATENCY_PROFILE_PATH = COST_DIR / "latency_profile.parquet"
@@ -49,11 +50,31 @@ def bar_parquet_path(symbol: str, interval: str, year: int, month: int) -> Path:
     return bar_partition_dir(symbol, interval) / f"{symbol}_{interval}_{year:04d}_{month:02d}.parquet"
 
 
+def whole_bar_partition_dir(symbol: str) -> Path:
+    """Directory for one symbol's whole-history bar caches."""
+    return WHOLE_BARS_DIR / f"symbol={symbol}"
+
+
+def whole_bar_path(symbol: str, interval: str) -> Path:
+    """One file covering a symbol's entire history at one interval.
+
+    Deliberately outside :data:`BARS_DIR`. That tree is the monthly partition
+    layout, and the loader prunes it on filenames alone - a file there that does
+    not name its month cannot be placed, so a whole-history cache dropped into
+    it breaks every read of that partition rather than just its own. These
+    caches are also free to be *filtered* (see
+    ``scripts/pipeline/prepare_fx_bars.py``, which drops thin weekend bars),
+    which the partition layout is not: there, a missing row means no ticks.
+    """
+    return whole_bar_partition_dir(symbol) / f"{symbol}_{interval}.parquet"
+
+
 def ensure_dirs() -> None:
     for path in (
         PROCESSED_DIR,
         TICKS_DIR,
         BARS_DIR,
+        WHOLE_BARS_DIR,
         COST_DIR,
         REPORTS_DIR,
         QUALITY_DIR,

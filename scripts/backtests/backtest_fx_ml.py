@@ -44,7 +44,7 @@ COST = 0.0002  # paper Section 3.8: fixed 0.02 percent
 
 
 def load_bars(symbol: str, freq: str, *, until: date) -> pd.DataFrame:
-    path = paths.bar_partition_dir(symbol, freq) / f"{symbol}_{freq}.parquet"
+    path = paths.whole_bar_path(symbol, freq)
     frame = pl.read_parquet(path).filter(pl.col("ts").dt.date() <= until)
     out = frame.select("ts", "open", "high", "low", "close").to_pandas()
     return out.set_index("ts").sort_index()

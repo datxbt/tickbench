@@ -32,6 +32,7 @@ list is pruned by year and month before any of it is opened.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -261,13 +262,40 @@ def _to_utc(value: DateLike) -> datetime:
     return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
 
 
+_MONTH_STEM = re.compile(r"_(?P<year>\d{4})_(?P<month>0[1-9]|1[0-2])$")
+
+
+def parse_month(path: Path) -> tuple[int, int]:
+    """(year, month) from a monthly parquet filename.
+
+    The layout is not a convention this layer can afford to guess at: pruning by
+    filename is what makes a lazy scan cheap, so a file that does not carry its
+    month is not a file this layer can place. Anything written into a partition
+    directory under some other naming - a whole-history cache, a scratch export -
+    is reported by name rather than mangled into a plausible-looking date or
+    skipped silently, either of which would show up later as a quiet gap in a
+    study's data.
+    """
+    match = _MONTH_STEM.search(path.stem)
+    if match is None:
+        raise ValueError(
+            f"{path} does not follow the monthly bar/tick naming "
+            "'{symbol}_{interval}_{YYYY}_{MM}.parquet' (ticks: "
+            "'{symbol}_{YYYY}_{MM}.parquet') that qlab.paths defines. "
+            "Partition directories hold monthly files only; rebuild it with "
+            "scripts/pipeline/build_bars.py or move it out of "
+            f"{path.parent}."
+        )
+    return int(match["year"]), int(match["month"])
+
+
 def _month_files(
     directory: Path, lo: datetime | None, hi: datetime | None
 ) -> list[Path]:
     """Monthly files overlapping [lo, hi), pruned on the filename alone."""
     selected: list[Path] = []
     for path in sorted(directory.glob("*.parquet")):
-        year, month = int(path.stem[-7:-3]), int(path.stem[-2:])
+        year, month = parse_month(path)
         month_start = datetime(year, month, 1, tzinfo=timezone.utc)
         next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
         month_end = datetime(next_year, next_month, 1, tzinfo=timezone.utc)
@@ -435,7 +463,4 @@ def available_months(symbol: str, interval: str | None = None) -> list[tuple[int
         if interval is None
         else paths.bar_partition_dir(symbol, interval)
     )
-    return [
-        (int(p.stem[-7:-3]), int(p.stem[-2:]))
-        for p in sorted(directory.glob("*.parquet"))
-    ]
+    return [parse_month(p) for p in sorted(directory.glob("*.parquet"))]

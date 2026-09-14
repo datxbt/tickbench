@@ -307,7 +307,9 @@ a cross-section.
    return and MFE/MAE study rather than as a strategy.
 2. **The 15-minute range, pre-registered.** It beat 5 minutes on both splits.
    Fixing it now and testing once on `test` is a legitimate single-shot
-   experiment; picking it after this report is not.
+   experiment; picking it after this report is not. *Run 2026-09-11:
+   +0.086 R at t = +0.57 on test, inconclusive - see [orb15.md](orb15.md). The
+   test split is spent for this family.*
 3. **An equity cross-section.** Everything the paper's headline depends on -
    twenty names, relative volume reaching 30x, diversification - needs one.
    Until there is one, this is the only part of the paper this corpus can speak
