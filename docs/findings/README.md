@@ -1,6 +1,6 @@
 # Findings
 
-Twenty-nine write-ups, each a hypothesis tested on 696M ticks of Exness raw-spread
+Thirty write-ups, each a hypothesis tested on 696M ticks of Exness raw-spread
 data (EURUSD, USDJPY, XAUUSD, USTEC, 2020-2026) against the measured cost model
 in [../cost-model.md](../cost-model.md). **One strategy was accepted and one
 forecasting model half-accepted; everything else was rejected.**
@@ -32,6 +32,7 @@ of each write-up, in the order the studies were run.
 | [Precision Sniper confluence scoring (WillyAlgoTrader)](precision-sniper.md) | **rejected**, all 6 presets, 1m to D1, 44 exits; matches a coin flip on a random bar |
 | [The New York open EMA rule](open-ema.md) | **rejected** - the stated trailing exit matches a coin flip, and the reported 57% win rate is not reachable by any trailing stop |
 | [Session opening-range breakout](session-breakout.md) | **rejected** |
+| [TOP8_2026 at fixed size, $0.30 spread guard](session-breakout-top8.md) | **not deployable** - loses in the only unselected window; profit is a volatility bet |
 | [The overnight-intraday reversal family](overnight-reversal.md) | **rejected** |
 | [Gold structural breaks](structural-break.md) | **rejected** |
 | [The overnight drift](overnight-drift.md) | **rejected** |
@@ -589,6 +590,52 @@ The MT5 code itself is sound where it matters - the re-init adoption pass, the
 DST-anchored flatten and the stale-position sweep are all correct. Its one
 serious live-trading defect is that position size ignores the stop distance, so
 risk per trade spans 14x at a fixed lot size.
+
+## TOP8_2026 at fixed size with a $0.30 spread guard - **not deployable**
+
+The deployment configuration of the same expert: preset `TOP8_2026`, a flat
+0.02 lots with volatility targeting off, and the literal dollar spread cap. Full
+report: `docs/findings/session-breakout-top8.md`. Driver:
+`scripts/backtests/backtest_session_breakout_top8.py`. Five deploy criteria were
+registered before any number was read. Two fail.
+
+| period | trades | mean R | net $ | daily t ($) | daily t (R) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| dev 2020-23 | 7,055 | -0.040 | -1,194 | -1.10 | **-2.11** |
+| val 2024-25H1 | 2,901 | +0.054 | +2,926 | 2.36 | 1.91 |
+| dev + val pooled | 9,956 | -0.013 | +1,732 | **1.00** | -0.77 |
+| 2026 (fit window) | 1,292 | +0.147 | +11,230 | 3.34 | 3.62 |
+
+- **The only unselected window loses.** Five of TOP8's eight hours come from the
+  `ORIGINAL` preset, which was picked on 2024-2025, so validation is partly
+  in-sample. 2020-2023 is clean, and there it loses at t -2.11 in R.
+- **Fixed lots turn it into a volatility bet.** The stop is the bracket, so
+  median dollar risk per trade rose 5.7x from 2023 to 2026. That is why pooled
+  dev + validation is positive in dollars and negative in R, and why 83% of all
+  profit sits in the eight months the preset was fitted on.
+- **Direction is worth about +0.03R a trade.** It beats its flipped control
+  (p = 0.017), but that is less than dev's 0.06-0.09R round turn.
+- **Re-picking hours beats picking at random, not zero.** Quarterly walk-forward
+  re-selection lands at the 97th-99th percentile of random selection, yet still
+  averages -0.016R and -0.020R out of sample, and about -0.06R at t -2.7 to -3.4
+  before 2024.
+- **The $0.30 guard never binds in 2026.** Spreads sit below it.
+
+Separately, the copy of the expert in the MT5 terminal is older than
+`mt5/XAUUSD_SessionBreakout_2026.mq5`. It lacks the re-init adoption pass, so a
+restart while brackets are armed doubles the position.
+
+**The MT5 Strategy Tester report of the same configuration** ($1,000, 4.5% daily
+halt, 2023-01 to 2026-09, +$16,631) is the same backtest. 99% of trades match
+the tick model on day, window, direction and exit
+(`scripts/research/tester_reconcile.py`). Its extra +$2,003 is cost: commission
+on one side only and no slippage. Replaying its account rules from other start
+dates is what matters. The same $1,000 account **is wiped out if started in
+2020 or 2021**, and 71% of the report's profit is from 2026. The report also
+shows two expert defects:
+- the winter weekday flatten never executed in the tester, so positions rode
+  the halt to the reopen;
+- early-close holidays carry positions over the weekend.
 
 
 ## The overnight-intraday reversal family - **rejected**

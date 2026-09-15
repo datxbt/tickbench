@@ -23,7 +23,17 @@ What is reproduced
 * The daily flatten is anchored to the 16:58 New York halt and therefore moves
   with US DST, minus a lead of ``flat_lead_minutes``. Friday closes earlier.
 * Range guards (``min_range_pct`` / ``max_range_pct``), the Sunday skip, the
-  spread guard, and the "price already outside the bracket" skip.
+  spread guard, and the "price already outside the bracket" skip. The spread
+  guard is either a multiple of mean spread or, with ``max_spread_usd``, the
+  expert's literal dollar cap.
+
+Controls and bulk runs
+----------------------
+* ``flip_direction`` takes the other side at the instant the breakout fills,
+  with the same stop and target distances - the geometry-only null.
+* :func:`run_many` resolves several (config, cost) variants against one walk of
+  the ticks, and :func:`grid` resolves every (hour, bracket, target) cell with
+  its flipped control, for selection tests.
 
 What is not
 -----------
@@ -45,7 +55,7 @@ profit, which is a limit and fills at its price or not at all.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -128,6 +138,14 @@ class BreakoutConfig:
     gold's measured mean. Expressed as a multiple it carries across
     instruments; expressed in dollars it would never bind on FX.
     """
+    max_spread_usd: float | None = None
+    """Spread cap in price units - USD/oz on gold - the expert's literal
+    ``InpMaxSpreadUSD``. When set it replaces ``max_spread_mult``, and ``inf``
+    switches the guard off."""
+    flip_direction: bool = False
+    """Mechanics control: at the instant the breakout fills, take the *other*
+    side with the same stop and target distances. Whatever the flipped trade
+    earns was earned by the geometry and the tape, not by the direction."""
     stop_mult: float | None = None
     """Stop distance as a multiple of the bracket width, measured from the fill.
 
@@ -269,6 +287,36 @@ def _find_entry(tape: _Tape, day: date, hour: int, range_min: int,
                   mid=(tape.bid[e] + tape.ask[e]) / 2, flat_us=flat_us)
 
 
+def spread_cap_price(cfg: BreakoutConfig, cost: CostModel | None, spec) -> float:
+    """The spread above which a bracket is not armed, in price units."""
+    if cfg.max_spread_usd is not None:
+        return float(cfg.max_spread_usd)
+    if cost is None:
+        raise ValueError("a spread multiple needs a cost model to take the mean from")
+    return cost.spread_pips() * spec.pip * cfg.max_spread_mult
+
+
+def _orient(tape: _Tape, ent: _Entry, hi: float, lo: float, width: float,
+            cfg: BreakoutConfig, slip: float, flip: bool) -> tuple[int, float, float]:
+    """Direction, entry price and stop of the trade actually taken.
+
+    The stop is the opposite edge of the bracket unless a multiple of the width
+    is asked for explicitly. The flipped control keeps the real trade's stop
+    distance and mirrors it around a fill on the other side of the same quote.
+    """
+    d, entry = ent.direction, ent.price
+    if cfg.stop_mult is None:
+        stop = lo if d == 1 else hi
+    else:
+        stop = entry - d * cfg.stop_mult * width
+    if flip:
+        dist = abs(entry - stop)
+        d = -d
+        entry = (tape.ask[ent.i] + slip) if d == 1 else (tape.bid[ent.i] - slip)
+        stop = entry - d * dist
+    return d, entry, stop
+
+
 def _simulate_window(tape: _Tape, day: date, hour: int, range_min: int,
                      target_mult: float, hi: float, lo: float, width: float,
                      cfg: BreakoutConfig, slip: float, spec,
@@ -277,15 +325,10 @@ def _simulate_window(tape: _Tape, day: date, hour: int, range_min: int,
     ent = _find_entry(tape, day, hour, range_min, hi, lo, cfg, slip, spread_cap)
     if ent is None:
         return None
-    e, direction, entry, entry_mid = ent.i, ent.direction, ent.price, ent.mid
-
-    # The stop is the opposite edge of the bracket unless a multiple of the
-    # width is asked for explicitly; the target is always a multiple of it,
-    # measured from the fill actually obtained.
-    if cfg.stop_mult is None:
-        stop = lo if direction == 1 else hi
-    else:
-        stop = entry - direction * cfg.stop_mult * width
+    e, entry_mid = ent.i, ent.mid
+    direction, entry, stop = _orient(tape, ent, hi, lo, width, cfg, slip,
+                                     cfg.flip_direction)
+    # The target is always a multiple of the width, from the fill obtained.
     target = entry + direction * target_mult * width
 
     # Manage to stop, target or the flatten. A stop is a market order and pays
@@ -352,30 +395,17 @@ def _simulate_window(tape: _Tape, day: date, hour: int, range_min: int,
     }
 
 
-def run(symbol: str, cfg: BreakoutConfig, *, start=None, end=None,
-        split: str | None = None, allow_test: bool = False,
-        cost: CostModel | None = None, verbose: bool = False) -> pl.DataFrame:
-    """Backtest one window set on one symbol, month by month over the ticks."""
-    spec = get_spec(symbol)
-    cost = cost or CostModel.from_profiles(symbol, split=split)
-    spread_cap = cost.spread_pips() * spec.pip * cfg.max_spread_mult
+def _iter_months(symbol: str, bars: pl.DataFrame):
+    """Yield ``(label, month_bars, tape)``, holding one month of ticks at a time.
 
-    bars = load_bars(symbol, "1m", start=start, end=end, split=split,
-                     allow_test=allow_test,
-                     columns=["ts", "ts_open", "high", "low"])
-    if bars.is_empty():
-        return pl.DataFrame()
-
-    # Per-hour slippage in price units, so a market fill can be moved by it.
-    slip_by_hour = {h: cost.slippage_pips(hour=h) * spec.pip for h in range(24)}
-
+    Gold's busiest month is 13M ticks; the tape is dropped before the next
+    month is loaded.
+    """
     months = (
         bars.select(pl.col("ts_open").dt.year().alias("y"),
                     pl.col("ts_open").dt.month().alias("m"))
         .unique().sort(["y", "m"]).rows()
     )
-
-    rows: list[dict] = []
     for y, m in months:
         m_start = datetime(y, m, 1, tzinfo=timezone.utc)
         m_end = datetime(y + m // 12, m % 12 + 1, 1, tzinfo=timezone.utc)
@@ -390,27 +420,305 @@ def run(symbol: str, cfg: BreakoutConfig, *, start=None, end=None,
                      bid=ticks["bid"].to_numpy(),
                      ask=ticks["ask"].to_numpy())
         del ticks
-
-        for hour, range_min, target_mult in cfg.windows:
-            slip = slip_by_hour[hour]
-            for row in _brackets(mbars, hour, range_min, cfg).iter_rows(named=True):
-                day = row["day"]
-                if cfg.skip_sunday and day.weekday() == 6:
-                    continue
-                rec = _simulate_window(
-                    tape, day, hour, range_min, target_mult,
-                    row["hi"], row["lo"], row["width"], cfg, slip,
-                    spec, spread_cap)
-                if rec is not None:
-                    rows.append(rec)
-        if verbose:
-            print(f"  {symbol} {y}-{m:02d}: {len(rows)} trades cumulative",
-                  flush=True)
+        yield f"{y}-{m:02d}", mbars, tape
         del tape
 
-    if not rows:
-        return pl.DataFrame()
-    return pl.DataFrame(rows).sort("entry_ts")
+
+def run_many(symbol: str,
+             variants: Mapping[str, tuple[BreakoutConfig, CostModel]], *,
+             start=None, end=None, split: str | None = None,
+             allow_test: bool = False,
+             verbose: bool = False) -> dict[str, pl.DataFrame]:
+    """Backtest several ``(config, cost)`` variants over one walk of the ticks.
+
+    Loading a month of ticks is most of the cost of a run, and a stress test or
+    a control differs from the base case only in a decision or a charge, so
+    every variant is resolved against the same month before the next one is
+    loaded. Each month's trades are folded into a frame straight away rather
+    than accumulated as dicts across the corpus.
+    """
+    spec = get_spec(symbol)
+    prepared = {
+        # Per-hour slippage in price units, so a market fill can be moved by it.
+        name: (cfg, spread_cap_price(cfg, cost, spec),
+               {h: cost.slippage_pips(hour=h) * spec.pip for h in range(24)})
+        for name, (cfg, cost) in variants.items()
+    }
+    bars = load_bars(symbol, "1m", start=start, end=end, split=split,
+                     allow_test=allow_test,
+                     columns=["ts", "ts_open", "high", "low"])
+    frames: dict[str, list[pl.DataFrame]] = {name: [] for name in variants}
+    if bars.is_empty():
+        return {name: pl.DataFrame() for name in variants}
+
+    for label, mbars, tape in _iter_months(symbol, bars):
+        brackets: dict[tuple, pl.DataFrame] = {}
+        for name, (cfg, spread_cap, slip_by_hour) in prepared.items():
+            rows: list[dict] = []
+            for hour, range_min, target_mult in cfg.windows:
+                key = (hour, range_min, cfg.min_range_pct, cfg.max_range_pct,
+                       cfg.min_range_bars_frac)
+                if key not in brackets:
+                    brackets[key] = _brackets(mbars, hour, range_min, cfg)
+                for row in brackets[key].iter_rows(named=True):
+                    day = row["day"]
+                    if cfg.skip_sunday and day.weekday() == 6:
+                        continue
+                    rec = _simulate_window(
+                        tape, day, hour, range_min, target_mult,
+                        row["hi"], row["lo"], row["width"], cfg,
+                        slip_by_hour[hour], spec, spread_cap)
+                    if rec is not None:
+                        rows.append(rec)
+            if rows:
+                frames[name].append(pl.DataFrame(rows))
+        if verbose:
+            first = next(iter(frames))
+            print(f"  {symbol} {label}: {sum(f.height for f in frames[first])} "
+                  f"{first} trades cumulative", flush=True)
+
+    return {name: (pl.concat(fs, how="vertical_relaxed").sort("entry_ts")
+                   if fs else pl.DataFrame())
+            for name, fs in frames.items()}
+
+
+def run(symbol: str, cfg: BreakoutConfig, *, start=None, end=None,
+        split: str | None = None, allow_test: bool = False,
+        cost: CostModel | None = None, verbose: bool = False) -> pl.DataFrame:
+    """Backtest one window set on one symbol, month by month over the ticks."""
+    cost = cost or CostModel.from_profiles(symbol, split=split)
+    return run_many(symbol, {"run": (cfg, cost)}, start=start, end=end,
+                    split=split, allow_test=allow_test, verbose=verbose)["run"]
+
+
+# --------------------------------------------------------------------------
+# Every cell at once, for selection tests
+# --------------------------------------------------------------------------
+
+def _cells_for_entry(tape: _Tape, ent: _Entry, hi: float, lo: float,
+                     width: float, targets: np.ndarray, cfg: BreakoutConfig,
+                     slip: float, spec) -> dict[str, np.ndarray]:
+    """Net R and net USD per lot for every target, and for the flipped trade.
+
+    The arithmetic of :func:`_simulate_window`, vectorised over the target. The
+    running extremes of the post-entry tape are monotone, so the first passage
+    to each level is a binary search on them rather than a scan per target.
+    """
+    e = ent.i
+    close_us = ent.flat_us
+    if cfg.max_hold_hours is not None:
+        close_us = min(close_us,
+                       int(tape.ts[e]) + int(cfg.max_hold_hours * 3600) * US)
+    pos_end = max(tape.index_at(close_us), e + 1)
+    n = pos_end - e
+
+    out: dict[str, np.ndarray] = {}
+    for flip, suffix in ((False, ""), (True, "_flip")):
+        d, entry, stop = _orient(tape, ent, hi, lo, width, cfg, slip, flip)
+        tgt = entry + d * targets * width
+        if d == 1:
+            px = tape.bid[e:pos_end]                  # a long exits on the bid
+            i_stop = np.searchsorted(-np.minimum.accumulate(px), -stop, side="left")
+            i_tp = np.searchsorted(np.maximum.accumulate(px), tgt, side="left")
+        else:
+            px = tape.ask[e:pos_end]                  # a short exits on the ask
+            i_stop = np.searchsorted(np.maximum.accumulate(px), stop, side="left")
+            i_tp = np.searchsorted(-np.minimum.accumulate(px), -tgt, side="left")
+        i_stop = int(i_stop)
+        # A stop and a flatten are market orders; a target is a limit. A tie
+        # between stop and target goes to the stop, as in the scalar path.
+        market = px[min(i_stop, n - 1)] - d * slip
+        exit_px = np.where(i_tp < i_stop, tgt, market)
+
+        rate = 1.0 if spec.quote_ccy == "USD" else entry
+        usd_per_price_unit = (spec.contract_size or 1.0) / rate
+        commission_px = spec.commission_pips(rate) * spec.pip
+        net_px = d * (exit_px - entry) - commission_px
+        net = net_px * usd_per_price_unit
+        out["r" + suffix] = net / (width * usd_per_price_unit)
+        out["usd" + suffix] = net
+    return out
+
+
+GRID_SCHEMA = {
+    "day": pl.Date, "hour": pl.Int64, "range_min": pl.Int64,
+    "target_mult": pl.Float64, "direction": pl.Int64, "width": pl.Float64,
+    "entry_ts": pl.Int64, "r": pl.Float64, "usd": pl.Float64,
+    "r_flip": pl.Float64, "usd_flip": pl.Float64,
+}
+
+
+def grid(symbol: str, cfg: BreakoutConfig, hours: Sequence[int],
+         ranges: Sequence[int], targets: Sequence[float], *,
+         cost: CostModel | None = None, start=None, end=None,
+         allow_test: bool = False, verbose: bool = False) -> pl.DataFrame:
+    """Every (hour, bracket, target) cell under ``cfg``'s rules, with its control.
+
+    ``cfg.windows`` is ignored; every other rule - guards, stop, flatten -
+    applies. One row per cell per filled day, with net ``r`` and ``usd`` per
+    lot, and ``r_flip`` / ``usd_flip`` for the other side at the same instant.
+    The entry does not depend on the target, so each (hour, bracket) is walked
+    once and all its targets are resolved against the same fill.
+    """
+    spec = get_spec(symbol)
+    cost = cost or CostModel.from_profiles(symbol)
+    spread_cap = spread_cap_price(cfg, cost, spec)
+    tm = np.asarray(targets, dtype=float)
+    slip_by_hour = {h: cost.slippage_pips(hour=h) * spec.pip for h in range(24)}
+    bars = load_bars(symbol, "1m", start=start, end=end, allow_test=allow_test,
+                     columns=["ts", "ts_open", "high", "low"])
+    if bars.is_empty():
+        return pl.DataFrame(schema=GRID_SCHEMA)
+
+    frames: list[pl.DataFrame] = []
+    for label, mbars, tape in _iter_months(symbol, bars):
+        rows: list[tuple] = []
+        for hour in hours:
+            slip = slip_by_hour[hour]
+            for range_min in ranges:
+                for row in _brackets(mbars, hour, range_min, cfg).iter_rows(named=True):
+                    day = row["day"]
+                    if cfg.skip_sunday and day.weekday() == 6:
+                        continue
+                    ent = _find_entry(tape, day, hour, range_min, row["hi"],
+                                      row["lo"], cfg, slip, spread_cap)
+                    if ent is None:
+                        continue
+                    c = _cells_for_entry(tape, ent, row["hi"], row["lo"],
+                                         row["width"], tm, cfg, slip, spec)
+                    ts = int(tape.ts[ent.i])
+                    for k in range(tm.size):
+                        rows.append((day, hour, range_min, float(tm[k]),
+                                     ent.direction, row["width"], ts,
+                                     float(c["r"][k]), float(c["usd"][k]),
+                                     float(c["r_flip"][k]), float(c["usd_flip"][k])))
+        if rows:
+            frames.append(pl.DataFrame(rows, schema=GRID_SCHEMA, orient="row"))
+        if verbose:
+            print(f"  {symbol} {label}: {sum(f.height for f in frames)} "
+                  f"cell-trades cumulative", flush=True)
+
+    return pl.concat(frames) if frames else pl.DataFrame(schema=GRID_SCHEMA)
+
+
+# --------------------------------------------------------------------------
+# The daily loss halt, an account-level rule
+# --------------------------------------------------------------------------
+
+@dataclass
+class DayHalt:
+    """What one day's trades are worth under any daily loss limit.
+
+    The expert's ``InpMaxDailyLossPct`` watches floating equity against the
+    day's opening equity, so whether it fires depends on the account's size
+    that morning - which depends on every earlier day. Rather than re-walk the
+    ticks for each deposit and start date, each day is reduced once to its
+    intraday record lows.
+
+    ``loss_at`` is each new low of the day's floating P&L, as a positive loss,
+    ascending. ``pnl_at[i]`` is the day's result if the halt fires at that low:
+    open positions are closed at the market, later entries never happen.
+    ``pnl_full`` is the day with no halt. A limit of ``H`` dollars fires at the
+    first low with ``loss_at >= H``, so replaying any limit is one binary search.
+    """
+
+    loss_at: np.ndarray
+    pnl_at: np.ndarray
+    pnl_full: float
+
+    def pnl(self, limit_usd: float) -> tuple[float, bool]:
+        """The day's P&L under a loss limit in dollars, and whether it fired.
+
+        A limit of zero or below is the expert's "off".
+        """
+        if limit_usd <= 0 or self.loss_at.size == 0:
+            return self.pnl_full, False
+        i = int(np.searchsorted(self.loss_at, limit_usd, side="left"))
+        if i >= self.loss_at.size:
+            return self.pnl_full, False
+        return float(self.pnl_at[i]), True
+
+
+def _day_halt(tape: _Tape, day_trades: pl.DataFrame, lots: float, spec,
+              slip_by_hour: np.ndarray) -> DayHalt:
+    """Reduce one day's trades to a :class:`DayHalt`.
+
+    Floating equity marks a long at the bid and a short at the ask, as MT5
+    does, and carries half the round-turn commission from the fill - the
+    entry deal's charge. A halt close is a market order and pays the hour's
+    slippage. Tick indices are recovered from the stored timestamps, so where
+    several quotes share a millisecond the mark may start one quote early.
+    """
+    mult = (spec.contract_size or 1.0) * lots
+    d = day_trades["direction"].to_numpy()
+    entry = day_trades["entry"].to_numpy()
+    net = day_trades["net_usd"].to_numpy() * lots
+    comm = day_trades["commission_usd"].to_numpy() * lots
+    e_idx = np.searchsorted(tape.ts, day_trades["entry_ts"].to_numpy(), side="left")
+    x_idx = np.searchsorted(tape.ts, day_trades["exit_ts"].to_numpy(), side="left")
+
+    lo_i, hi_i = int(e_idx.min()), int(x_idx.max()) + 1
+    bid, ask = tape.bid[lo_i:hi_i], tape.ask[lo_i:hi_i]
+    n = hi_i - lo_i
+    eq = np.zeros(n)
+    for k in range(d.size):
+        e, x = int(e_idx[k]) - lo_i, int(x_idx[k]) - lo_i
+        side = bid if d[k] == 1 else ask
+        eq[e:x] += d[k] * (side[e:x] - entry[k]) * mult - comm[k] / 2
+        eq[x:] += net[k]
+
+    runmin = np.minimum.accumulate(eq)
+    new_low = np.empty(n, dtype=bool)
+    new_low[0] = True
+    new_low[1:] = runmin[1:] < runmin[:-1]
+    rec = np.flatnonzero(new_low & (eq < 0))
+    if rec.size == 0:
+        return DayHalt(np.empty(0), np.empty(0), float(net.sum()))
+
+    hours = ((tape.ts[rec + lo_i] // (3600 * US)) % 24).astype(np.int64)
+    slip = slip_by_hour[hours]
+    pnl = np.zeros(rec.size)
+    for k in range(d.size):
+        e, x = int(e_idx[k]) - lo_i, int(x_idx[k]) - lo_i
+        side = bid[rec] if d[k] == 1 else ask[rec]
+        closed = rec >= x
+        still_open = (rec >= e) & ~closed
+        pnl += np.where(closed, net[k], 0.0)
+        pnl += np.where(still_open,
+                        d[k] * (side - d[k] * slip - entry[k]) * mult - comm[k], 0.0)
+    return DayHalt(-eq[rec], pnl, float(net.sum()))
+
+
+def halt_tables(symbol: str, trades: pl.DataFrame, *, lots: float,
+                slip_by_hour: "Callable[[date], np.ndarray]",
+                verbose: bool = False) -> dict[date, DayHalt]:
+    """A :class:`DayHalt` for every day in a trade tape, one month of ticks at a time.
+
+    ``trades`` is a tape from :func:`run`; ``slip_by_hour(day)`` returns the 24
+    per-hour slippages, in price units, that apply on that day.
+    """
+    spec = get_spec(symbol)
+    if spec.quote_ccy != "USD":
+        raise NotImplementedError("the halt mark-to-market assumes a USD-quoted symbol")
+    months = (trades.select(pl.col("day").dt.year().alias("y"),
+                            pl.col("day").dt.month().alias("m"))
+              .unique().sort(["y", "m"]).rows())
+    out: dict[date, DayHalt] = {}
+    for y, m in months:
+        m_start = datetime(y, m, 1, tzinfo=timezone.utc)
+        m_end = datetime(y + m // 12, m % 12 + 1, 1, tzinfo=timezone.utc)
+        month = trades.filter((pl.col("day").dt.year() == y)
+                              & (pl.col("day").dt.month() == m)).sort("entry_ts")
+        ticks = load_ticks(symbol, start=m_start, end=m_end, allow_test=True)
+        tape = _Tape(ts=ticks["ts"].cast(pl.Int64).to_numpy(),
+                     bid=ticks["bid"].to_numpy(), ask=ticks["ask"].to_numpy())
+        del ticks
+        for (day,), g in month.group_by(["day"], maintain_order=True):
+            out[day] = _day_halt(tape, g, lots, spec, slip_by_hour(day))
+        if verbose:
+            print(f"  {symbol} {y}-{m:02d}: {len(out)} days", flush=True)
+        del tape
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -443,7 +751,7 @@ def sweep_exits(symbol: str, cfg: BreakoutConfig,
     """
     spec = get_spec(symbol)
     cost = cost or CostModel.from_profiles(symbol, split=None)
-    spread_cap = cost.spread_pips() * spec.pip * cfg.max_spread_mult
+    spread_cap = spread_cap_price(cfg, cost, spec)
     sm = np.asarray(stop_mults, dtype=float)
     tm = np.asarray(target_mults, dtype=float)
 

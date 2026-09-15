@@ -33,6 +33,10 @@ python scripts/pipeline/cost_report.py --adverse 1.0 --latency 500   # stress
 
 # Strategies. Both refuse the locked test split unless it is asked for.
 python scripts/backtests/backtest_session_breakout.py
+python scripts/backtests/backtest_session_breakout_top8.py             # TOP8_2026, 0.02 lots, $0.30 cap, D1-D5
+python scripts/backtests/backtest_session_breakout_top8.py --phase analyse   # tables from the cached tapes and grid
+python scripts/research/tester_reconcile.py REPORT.xlsx --phase parse halt report detail   # MT5 tester report vs the tick model
+python scripts/research/tester_compare.py A_DIR B_DIR                  # two tester reports, one change at a time
 python scripts/backtests/backtest_pause_bar.py                         # rejected, all four
 python scripts/backtests/backtest_pause_bar.py --control               # the geometry-only null
 python scripts/backtests/backtest_pause_bar.py --placebo               # the faded-signal check
