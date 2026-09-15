@@ -16,7 +16,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "scikit-learn>=1.3"]
+# Imported lazily by the ML studies (qlab.strategies.fx_ml, decision_tree).
+ml = ["scikit-learn>=1.3", "xgboost>=2.0", "torch>=2.0"]
+# Single-purpose scripts: MT5 tester reports, the plan PDF, the small-cap fetch.
+scripts = ["openpyxl>=3.1", "reportlab>=4.0", "yfinance>=0.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

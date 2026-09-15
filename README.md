@@ -5,7 +5,7 @@ raw-spread feeds (EURUSD, USDJPY, XAUUSD, USTEC), 2020-2026.
 
 The installed distribution is `tickbench`; the import name is `qlab`.
 
-Twenty-seven hypotheses - price-action folklore, published papers, machine-learned
+Thirty hypotheses - price-action folklore, published papers, machine-learned
 signals - implemented against 696M ticks and priced with a cost model measured
 from the same feed. **One survived as a deployable strategy, one more as a
 forecasting model.** The rejections are the product: they are written up in
@@ -28,7 +28,7 @@ full, with the null they were tested against.
 Requires Python 3.11+ with polars, pyarrow, pandas, numpy, duckdb.
 
 ```bash
-pip install -e .
+pip install -e .[dev]    # add ml (sklearn, xgboost, torch) or scripts (openpyxl, reportlab, yfinance) as needed
 ```
 
 Raw vendor CSVs go in `Tick_Data/`. Everything under `data/` and `reports/` is
